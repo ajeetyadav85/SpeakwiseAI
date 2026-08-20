@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Master Nginx Edge Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: speakwise_proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - client
+      - server
+
+  # React Vite Client App
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: speakwise_client
+    restart: always
+
+  # Express Node.js Server API & Socket.IO
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: speakwise_server
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongodb:27017/speakwise_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - mongodb
+      - redis
+
+  # MongoDB Primary Database
+  mongodb:
+    image: mongo:7.0
+    container_name: speakwise_db_prod
+    restart: always
+    volumes:
+      - mongo_prod_data:/data/db
+
+  # Redis Sentinel / Queue & Cache Store
+  redis:
+    image: redis:7.2-alpine
+    container_name: speakwise_redis_prod
+    restart: always
+    volumes:
+      - redis_prod_data:/data
+
+volumes:
+  mongo_prod_data:
+  redis_prod_data:

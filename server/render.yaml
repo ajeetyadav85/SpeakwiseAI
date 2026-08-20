@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: speakwise-backend-api
+    env: node
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/app.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000

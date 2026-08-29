@@ -24,6 +24,8 @@ import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { DisclaimerPage } from './pages/DisclaimerPage';
 import { ContactUsPage } from './pages/ContactUsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { FloatingThemeToggle } from './components/common/FloatingThemeToggle';
+
 
 
 const queryClient = new QueryClient({
@@ -96,9 +98,11 @@ const AppLayout: React.FC = () => {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
+      <FloatingThemeToggle />
     </div>
   );
 };
+
 
 export const App: React.FC = () => {
   const { theme } = useThemeStore();

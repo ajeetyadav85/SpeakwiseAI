@@ -497,22 +497,6 @@ export const LandingPage: React.FC = () => {
       </div>
 
       {/* Floating Bottom Left Theme Controls */}
-      <div className="fixed bottom-6 left-6 z-40 flex flex-col gap-3">
-        <button
-          onClick={toggleTheme}
-          className="p-3.5 rounded-full neu-button text-slate-700 dark:text-slate-300 hover:scale-110 transition-transform"
-          title="Toggle Light/Dark Theme"
-        >
-          {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
-        </button>
-        <button
-          onClick={() => navigate('/practice')}
-          className="p-3.5 rounded-full neu-button text-slate-700 dark:text-slate-300 hover:scale-110 transition-transform"
-          title="Explore Topic Categories"
-        >
-          <HelpCircle className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-        </button>
-      </div>
 
       {/* Post-Session Analysis & Login/Upgrade Modal */}
       <AnimatePresence>

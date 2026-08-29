@@ -19,6 +19,8 @@ import {
   ChevronUp,
   Clock,
   Zap,
+  Calendar,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -29,8 +31,9 @@ export const SubscriptionModal: React.FC = () => {
     subscriptionModalOpen,
     closeSubscriptionModal,
     isPro,
-    upgradeToPro,
+    activePlanId,
     planExpiresAt,
+    upgradeToPro,
   } = useSubscriptionStore();
   const { user } = useAuthStore();
 
@@ -45,7 +48,24 @@ export const SubscriptionModal: React.FC = () => {
 
   const SPEAKWISE_UPI_ID = 'speakwise.ai@okhdfcbank';
 
-  if (!subscriptionModalOpen || isPro) return null;
+  // Modal must open regardless of whether user is pro or not!
+  if (!subscriptionModalOpen) return null;
+
+  const currentPlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId) || SUBSCRIPTION_PLANS[2];
+
+  const formatRemainingTime = (expiresAtStr: string | null): string => {
+    if (!expiresAtStr) return 'Active';
+    const diffMs = new Date(expiresAtStr).getTime() - Date.now();
+    if (diffMs <= 0) return 'Expired';
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    if (days > 0) {
+      return `${days}d ${remainingHours}h remaining`;
+    }
+    const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${mins}m remaining`;
+  };
 
   const handleCopyUPI = () => {
     navigator.clipboard.writeText(SPEAKWISE_UPI_ID);
@@ -107,17 +127,52 @@ export const SubscriptionModal: React.FC = () => {
             <Crown className="w-5 h-5 text-amber-300 animate-pulse" />
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            Choose Your Practice Recharge
+            {isPro ? 'Subscription & Membership Details' : 'Choose Your Practice Recharge'}
           </h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 max-w-sm mx-auto font-medium">
-            Affordable short-term passes & long-term plans. Validity starts right from the exact moment of payment!
+            {isPro
+              ? 'View your active plan, expiration countdown, or extend your validity.'
+              : 'Affordable short-term passes & long-term plans. Validity starts from exact time of payment!'}
           </p>
         </div>
+
+        {/* Active Membership Status Banner (Shown when user is currently Pro) */}
+        {isPro && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-indigo-500/10 to-transparent border border-emerald-500/30 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
+                  Active Pro Membership
+                </span>
+              </div>
+              <Badge variant="emerald">{formatRemainingTime(planExpiresAt)}</Badge>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+              <div>
+                <span className="text-slate-500 dark:text-slate-400 font-bold block text-[10px]">Current Plan</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">{currentPlan.name}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 dark:text-slate-400 font-bold block text-[10px]">Valid Until</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                  {planExpiresAt ? new Date(planExpiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Continuous Access'}
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center gap-1.5 pt-1 border-t border-emerald-500/20">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Unlimited Speech Analysis, Pronunciation Phonetics & Acoustic HUD</span>
+            </div>
+          </div>
+        )}
 
         {/* 6-Plan Recharge Grid */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-            <span>Select Recharge Duration:</span>
+            <span>{isPro ? 'Extend / Upgrade Your Plan:' : 'Select Recharge Duration:'}</span>
             <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">
               {selectedPlan.validityText}
             </span>
@@ -189,7 +244,7 @@ export const SubscriptionModal: React.FC = () => {
               </div>
             </div>
           </div>
-          <Badge variant="indigo">Pro Active</Badge>
+          <Badge variant="indigo">Selected</Badge>
         </div>
 
         {/* Payment Method Selector Tabs */}
@@ -248,7 +303,7 @@ export const SubscriptionModal: React.FC = () => {
               </div>
               <button
                 onClick={handleCopyUPI}
-                className="px-2 py-1 rounded-lg neu-button text-[10px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 hover:scale-105 transition-transform"
+                className="px-2.5 py-1 rounded-lg neu-button text-[10px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 hover:scale-105 transition-transform"
               >
                 {copiedUpi ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
                 <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
@@ -262,7 +317,7 @@ export const SubscriptionModal: React.FC = () => {
               onClick={handleDirectUpiVerification}
               isLoading={isLoading}
             >
-              {success ? 'Pro Plan Activated! 🎉' : `I Have Paid ₹${selectedPlan.priceInr} via UPI (Verify & Activate)`}
+              {success ? 'Recharge Activated! 🎉' : `I Have Paid ₹${selectedPlan.priceInr} via UPI (Verify & Activate)`}
             </Button>
           </div>
         )}

@@ -22,10 +22,13 @@ import {
   LayoutDashboard,
   LogIn,
   UserPlus,
+  Trophy,
+  Award,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { SubscriptionModal } from '../subscription/SubscriptionModal';
 import { UpgradeLimitModal } from '../subscription/UpgradeLimitModal';
+
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -223,6 +226,28 @@ export const Navbar: React.FC = () => {
                       <button
                         onClick={() => {
                           setShowProfileMenu(false);
+                          navigate('/leaderboard');
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:neu-pressed flex items-center gap-2.5"
+                      >
+                        <Trophy className="w-4 h-4 text-amber-500" />
+                        <span>Leaderboard</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          navigate('/achievements');
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:neu-pressed flex items-center gap-2.5"
+                      >
+                        <Award className="w-4 h-4 text-emerald-500" />
+                        <span>Badges & Milestones</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
                           navigate('/sessions');
                         }}
                         className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:neu-pressed flex items-center gap-2.5"
@@ -230,6 +255,7 @@ export const Navbar: React.FC = () => {
                         <HistoryIcon className="w-4 h-4 text-violet-500" />
                         <span>History</span>
                       </button>
+
 
                       <button
                         onClick={() => {

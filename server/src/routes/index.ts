@@ -8,6 +8,7 @@ import adminRoutes from './admin.routes.js';
 import subscriptionRoutes from './subscription.routes.js';
 import contentRoutes from './content.routes.js';
 import usageRoutes from './usage.routes.js';
+import gamificationRoutes from './gamification.routes.js';
 
 const router = Router();
 
@@ -20,5 +21,7 @@ router.use('/admin', adminRoutes);
 router.use('/subscription', subscriptionRoutes);
 router.use('/content', contentRoutes);
 router.use('/usage', usageRoutes);
+router.use('/gamification', gamificationRoutes);
 
 export default router;
+

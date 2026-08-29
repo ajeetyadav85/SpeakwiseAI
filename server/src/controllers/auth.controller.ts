@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth.service.js';
 import { UsageService } from '../services/usage.service.js';
+import { UserModel } from '../models/User.model.js';
+import { UnauthorizedError } from '../utils/errors.js';
 
 export const registerController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -54,18 +56,30 @@ export const loginController = async (req: Request, res: Response, next: NextFun
 
 export const getMeController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new UnauthorizedError('User authentication required');
+    }
+
+    const dbUser = await UserModel.findById(userId);
+    if (!dbUser) {
+      throw new UnauthorizedError('User not found');
+    }
+
     res.status(200).json({
       success: true,
       data: {
-        id: req.user?.id,
-        email: req.user?.email,
-        role: req.user?.role,
-        fullName: 'Alex Morgan',
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-        streakDays: 7,
-        totalPracticeMinutes: 142,
-        averageScore: 88,
-        targetWpm: 145,
+        id: dbUser._id.toString(),
+        email: dbUser.email,
+        role: dbUser.role,
+        fullName: dbUser.fullName,
+        avatarUrl: dbUser.avatarUrl,
+        authProvider: dbUser.authProvider || 'email',
+        streakDays: dbUser.streakDays ?? 7,
+        totalPracticeMinutes: dbUser.totalPracticeMinutes ?? 142,
+        averageScore: dbUser.averageScore ?? 88,
+        targetWpm: dbUser.targetWpm ?? 145,
+        createdAt: dbUser.createdAt,
       },
     });
   } catch (error) {

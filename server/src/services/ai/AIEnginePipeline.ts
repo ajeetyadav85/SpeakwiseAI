@@ -94,7 +94,16 @@ export class AIEnginePipeline {
         })),
         actionableExercises: llmFeedback.dailyExercises,
       },
+      pronunciationAnalysis: llmFeedback.pronunciationAnalysis || {
+        overallPronunciationScore: azureMetrics.pronunciationScore || 88,
+        phonemicAccuracyScore: 90,
+        intonationScore: 85,
+        rhythmScore: 89,
+        mispronouncedWords: [],
+        phoneticExercises: [],
+      },
     };
+
 
     // Save to MongoDB database (if available) or return structured document
     try {

@@ -17,9 +17,14 @@ import { SessionHistoryPage } from './pages/SessionHistoryPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DailyDrillsPage } from './pages/DailyDrillsPage';
 import { AchievementsPage } from './pages/AchievementsPage';
+import { LeaderboardPage } from './pages/LeaderboardPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
+import { DisclaimerPage } from './pages/DisclaimerPage';
+import { ContactUsPage } from './pages/ContactUsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +72,11 @@ const AppLayout: React.FC = () => {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/practice" element={<PracticeModePage />} />
           <Route path="/practice/studio" element={<LiveStudioPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/disclaimer" element={<DisclaimerPage />} />
+          <Route path="/terms" element={<DisclaimerPage />} />
+          <Route path="/contact" element={<ContactUsPage />} />
+
 
           {/* Protected Application Routes */}
           <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
@@ -75,7 +85,9 @@ const AppLayout: React.FC = () => {
           <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
           <Route path="/drills" element={<ProtectedRoute><DailyDrillsPage /></ProtectedRoute>} />
           <Route path="/achievements" element={<ProtectedRoute><AchievementsPage /></ProtectedRoute>} />
+          <Route path="/leaderboard" element={<ProtectedRoute><LeaderboardPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+
 
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminRoute><AdminDashboardPage /></AdminRoute>} />

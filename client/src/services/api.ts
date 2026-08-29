@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { SpeechReport, PracticeSession, Topic, Achievement, DailyChallenge, AppNotification } from '../types';
+import { SpeechReport, PracticeSession, Topic, Achievement, DailyChallenge, AppNotification, LeaderboardUser } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1';
 
 export const apiClient = axios.create({
   baseURL: API_BASE,
@@ -9,6 +9,18 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('speakwise_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 
 // Mock Datasets for Standalone Demo Mode
 export const mockTopics: Topic[] = [
@@ -153,6 +165,83 @@ export const mockSampleReport: SpeechReport = {
       },
     ],
   },
+  pronunciationAnalysis: {
+    overallPronunciationScore: 89,
+    phonemicAccuracyScore: 91,
+    intonationScore: 86,
+    rhythmScore: 90,
+    mispronouncedWords: [
+      {
+        word: 'revolutionizing',
+        ipaExpected: '/ˌrev.əˈluː.ʃən.aɪ.zɪŋ/',
+        ipaDetected: '/ˌrev.əˈluː.ʃən.eɪ.zɪŋ/',
+        syllableBreakdown: 'rev-o-LU-tion-i-zing',
+        stressPattern: 'Primary stress on 3rd syllable "LU"',
+        issueType: 'Vowel diphthong shift (/aɪ/ vs /eɪ/)',
+        phoneticTip: 'Open your jaw slightly more and glide smoothly from the open /a/ vowel towards /ɪ/. Avoid flattening the sound into a rigid "ay".',
+        practiceExercise: 'Repeat smoothly: "Revolutionize -> Revolutionizing -> Revolutionized"',
+        audioWord: 'revolutionizing',
+      },
+      {
+        word: 'instantaneously',
+        ipaExpected: '/ˌɪn.stənˈteɪ.ni.əs.li/',
+        ipaDetected: '/ˌɪn.stənˈtiː.ni.əs.li/',
+        syllableBreakdown: 'in-stan-TA-ne-ous-ly',
+        stressPattern: 'Primary stress on 3rd syllable "TA"',
+        issueType: 'Syllable vowel compression',
+        phoneticTip: 'Give full vocal weight and length to the stressed "TA" /teɪ/ syllable before resolving into "-ne-ous-ly".',
+        practiceExercise: 'Rhythmic tap drill: in-stan-[TAP]-ne-ous-ly.',
+        audioWord: 'instantaneously',
+      },
+      {
+        word: 'multimodal',
+        ipaExpected: '/ˌmʌl.tiˈmoʊ.dəl/',
+        ipaDetected: '/ˌmʊl.tiˈmɒ.dəl/',
+        syllableBreakdown: 'mul-ti-MO-dal',
+        stressPattern: 'Primary stress on 3rd syllable "MO"',
+        issueType: 'Vowel rounding (/oʊ/)',
+        phoneticTip: 'Maintain a relaxed central /ʌ/ in "mul-", then round your lips firmly to form the /oʊ/ sound in "-modal".',
+        practiceExercise: 'Minimal pair contrast: "Multiple" -> "Modal" -> "Multimodal".',
+        audioWord: 'multimodal',
+      },
+    ],
+    phoneticExercises: [
+      {
+        title: 'The /aɪ/ vs /eɪ/ Vowel Clarity Matrix',
+        targetSound: 'Long /aɪ/ diphthong precision',
+        phoneticSymbol: '/aɪ/',
+        instructions: 'Focus on jaw drop when transitioning into the glide. Keep tongue high on the end sound.',
+        sampleSentences: [
+          'SpeakWise AI identifies dynamic real-time pacing metrics.',
+          'The enterprise pricing model provides high return on investment.',
+          'We utilize multi-variable acoustic scoring for executive speeches.',
+        ],
+        difficulty: 'Intermediate',
+      },
+      {
+        title: 'Polysyllabic Stress & Cadence Drill',
+        targetSound: 'Multi-syllable word stress',
+        phoneticSymbol: 'ˈ primary stress',
+        instructions: 'Pronounce the stressed syllable with 15% higher volume and longer duration than surrounding unstressed syllables.',
+        sampleSentences: [
+          'We instantaneously process proprietary acoustic telemetry.',
+          'Multimodal feedback enhances executive communication confidence.',
+        ],
+        difficulty: 'Advanced',
+      },
+      {
+        title: 'Consonant Cluster Articulation Drill',
+        targetSound: '/st/ and /tr/ clean separation',
+        phoneticSymbol: '/st/ /tr/',
+        instructions: 'Avoid inserting a neutral schwa /ə/ sound between the consonant pair. Release air crisply.',
+        sampleSentences: [
+          'Strong strategic structures support strategic success.',
+          'Crisp transcription tracks trust and transparency.',
+        ],
+        difficulty: 'Beginner',
+      },
+    ],
+  },
 };
 
 export const mockSessions: PracticeSession[] = [
@@ -207,14 +296,17 @@ export const mockSessions: PracticeSession[] = [
 ];
 
 export const mockAchievements: Achievement[] = [
+
   {
     id: 'ach_1',
     title: 'Voice Pioneer',
-    description: 'Complete your first practice rehearsal session',
+    description: 'Complete your first public speaking rehearsal session',
     icon: 'Mic',
     unlocked: true,
     unlockedAt: '2026-07-20',
     progress: 100,
+    category: 'MILESTONE',
+    expReward: 100,
   },
   {
     id: 'ach_2',
@@ -224,24 +316,196 @@ export const mockAchievements: Achievement[] = [
     unlocked: true,
     unlockedAt: '2026-08-03',
     progress: 100,
+    category: 'STREAK',
+    expReward: 250,
   },
   {
     id: 'ach_3',
     title: 'Filler Word Assassin',
-    description: 'Achieve a speech session with zero filler words',
+    description: 'Achieve a speech session with zero filler disfluencies',
     icon: 'Zap',
     unlocked: false,
     progress: 80,
+    category: 'PRECISION',
+    expReward: 200,
   },
   {
     id: 'ach_4',
     title: 'Master Orator',
-    description: 'Score 90+ overall across 10 consecutive rehearsals',
+    description: 'Score 90+ overall across consecutive public speaking rehearsals',
     icon: 'Award',
     unlocked: false,
     progress: 40,
+    category: 'PRECISION',
+    expReward: 350,
+  },
+  {
+    id: 'ach_5',
+    title: 'Crisp Articulator',
+    description: 'Achieve 90+ pronunciation accuracy score on phonetic evaluation',
+    icon: 'Sparkles',
+    unlocked: true,
+    unlockedAt: '2026-08-02',
+    progress: 100,
+    category: 'PRONUNCIATION',
+    expReward: 300,
+  },
+  {
+    id: 'ach_6',
+    title: '14-Day Unstoppable Flame',
+    description: 'Maintain a 14-day continuous speaking practice streak',
+    icon: 'Flame',
+    unlocked: false,
+    progress: 50,
+    category: 'STREAK',
+    expReward: 500,
+  },
+  {
+    id: 'ach_7',
+    title: 'Daily Drill Champion',
+    description: 'Complete 5 targeted public speaking acoustic drills',
+    icon: 'Target',
+    unlocked: true,
+    unlockedAt: '2026-07-28',
+    progress: 100,
+    category: 'CHALLENGE',
+    expReward: 200,
+  },
+  {
+    id: 'ach_8',
+    title: 'Century Keynote Speaker',
+    description: 'Log over 100 total minutes of live public speaking practice',
+    icon: 'Crown',
+    unlocked: true,
+    unlockedAt: '2026-08-01',
+    progress: 100,
+    category: 'MILESTONE',
+    expReward: 400,
   },
 ];
+
+export const mockLeaderboardData: LeaderboardUser[] = [
+  {
+    rank: 1,
+    userId: 'usr_top1',
+    fullName: 'Elena Rostova',
+    avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
+    role: 'PRO_USER',
+    exp: 4850,
+    level: 9,
+    streakDays: 24,
+    averageScore: 95,
+    totalPracticeMinutes: 380,
+    badgeCount: 8,
+  },
+  {
+    rank: 2,
+    userId: 'usr_top2',
+    fullName: 'Marcus Vance',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80',
+    role: 'PRO_USER',
+    exp: 4200,
+    level: 8,
+    streakDays: 19,
+    averageScore: 93,
+    totalPracticeMinutes: 310,
+    badgeCount: 7,
+  },
+  {
+    rank: 3,
+    userId: 'usr_top3',
+    fullName: 'Jordan Reed',
+    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+    role: 'PRO_USER',
+    exp: 3650,
+    level: 7,
+    streakDays: 14,
+    averageScore: 91,
+    totalPracticeMinutes: 245,
+    badgeCount: 6,
+  },
+
+  {
+    rank: 4,
+    userId: 'usr_top4',
+    fullName: 'Sophia Chen',
+    avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&q=80',
+    role: 'PRO_USER',
+    exp: 3200,
+    level: 6,
+    streakDays: 12,
+    averageScore: 89,
+    totalPracticeMinutes: 210,
+    badgeCount: 5,
+  },
+  {
+    rank: 5,
+    userId: 'usr_top5',
+    fullName: 'David Kalu',
+    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80',
+    role: 'PRO_USER',
+    exp: 2900,
+    level: 5,
+    streakDays: 10,
+    averageScore: 88,
+    totalPracticeMinutes: 185,
+    badgeCount: 5,
+  },
+  {
+    rank: 6,
+    userId: 'usr_top6',
+    fullName: 'Ananya Sharma',
+    avatarUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80',
+    role: 'PRO_USER',
+    exp: 2450,
+    level: 5,
+    streakDays: 8,
+    averageScore: 87,
+    totalPracticeMinutes: 160,
+    badgeCount: 4,
+  },
+  {
+    rank: 7,
+    userId: 'usr_top7',
+    fullName: 'Liam O’Connor',
+    avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=256&q=80',
+    role: 'FREE_USER',
+    exp: 1950,
+    level: 4,
+    streakDays: 7,
+    averageScore: 85,
+    totalPracticeMinutes: 140,
+    badgeCount: 3,
+  },
+];
+
+export const fetchBadgesApi = async (): Promise<Achievement[]> => {
+  try {
+    const res = await apiClient.get('/gamification/badges');
+    return res.data.data;
+  } catch (e) {
+    return mockAchievements;
+  }
+};
+
+export const fetchLeaderboardApi = async (
+  category = 'EXP',
+  timeframe = 'ALL_TIME'
+): Promise<LeaderboardUser[]> => {
+  try {
+    const res = await apiClient.get(`/gamification/leaderboard?category=${category}&timeframe=${timeframe}`);
+    return res.data.data;
+  } catch (e) {
+    if (category === 'SCORE') {
+      return [...mockLeaderboardData].sort((a, b) => b.averageScore - a.averageScore).map((u, i) => ({ ...u, rank: i + 1 }));
+    }
+    if (category === 'STREAK') {
+      return [...mockLeaderboardData].sort((a, b) => b.streakDays - a.streakDays).map((u, i) => ({ ...u, rank: i + 1 }));
+    }
+    return mockLeaderboardData;
+  }
+};
+
 
 export const mockDailyChallenge: DailyChallenge = {
   id: 'daily_20260803',

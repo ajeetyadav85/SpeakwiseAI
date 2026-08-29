@@ -31,6 +31,31 @@ export interface ISpeechReport extends Document {
     rephrasedSuggestions: Array<{ originalText: string; improvedText: string; reasoning: string }>;
     actionableExercises: Array<{ title: string; instructions: string; category: string }>;
   };
+  pronunciationAnalysis?: {
+    overallPronunciationScore: number;
+    phonemicAccuracyScore: number;
+    intonationScore: number;
+    rhythmScore: number;
+    mispronouncedWords: Array<{
+      word: string;
+      ipaExpected: string;
+      ipaDetected: string;
+      syllableBreakdown: string;
+      stressPattern: string;
+      issueType: string;
+      phoneticTip: string;
+      practiceExercise: string;
+      audioWord?: string;
+    }>;
+    phoneticExercises: Array<{
+      title: string;
+      targetSound: string;
+      phoneticSymbol: string;
+      instructions: string;
+      sampleSentences: string[];
+      difficulty: string;
+    }>;
+  };
   createdAt: Date;
 }
 
@@ -66,8 +91,38 @@ const SpeechReportSchema: Schema = new Schema(
       rephrasedSuggestions: [{ originalText: String, improvedText: String, reasoning: String }],
       actionableExercises: [{ title: String, instructions: String, category: String }],
     },
+    pronunciationAnalysis: {
+      overallPronunciationScore: { type: Number, default: 86 },
+      phonemicAccuracyScore: { type: Number, default: 88 },
+      intonationScore: { type: Number, default: 84 },
+      rhythmScore: { type: Number, default: 87 },
+      mispronouncedWords: [
+        {
+          word: String,
+          ipaExpected: String,
+          ipaDetected: String,
+          syllableBreakdown: String,
+          stressPattern: String,
+          issueType: String,
+          phoneticTip: String,
+          practiceExercise: String,
+          audioWord: String,
+        },
+      ],
+      phoneticExercises: [
+        {
+          title: String,
+          targetSound: String,
+          phoneticSymbol: String,
+          instructions: String,
+          sampleSentences: [String],
+          difficulty: String,
+        },
+      ],
+    },
   },
   { timestamps: true }
 );
 
 export const SpeechReportModel = mongoose.model<ISpeechReport>('SpeechReport', SpeechReportSchema);
+

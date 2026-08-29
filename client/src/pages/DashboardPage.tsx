@@ -123,13 +123,13 @@ export const DashboardPage: React.FC = () => {
         </Card>
 
         <Card hoverGlow className="flex items-center gap-4 neu-flat">
-          <div className="w-12 h-12 rounded-2xl neu-button flex items-center justify-center text-cyan-500 font-bold">
-            <Clock className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-2xl neu-button flex items-center justify-center text-amber-400 font-bold">
+            <Zap className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Practice Time</div>
-            <div className="text-2xl font-black text-slate-900 dark:text-white font-mono">{user?.totalPracticeMinutes} <span className="text-xs text-slate-400">mins</span></div>
-            <div className="text-[11px] text-slate-400 font-medium mt-0.5">Across 18 sessions</div>
+            <div className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Speaker Level</div>
+            <div className="text-2xl font-black text-slate-900 dark:text-white font-mono">Lvl {user?.level || 4} <span className="text-xs text-slate-400 font-normal">({user?.exp || 1850} EXP)</span></div>
+            <div className="text-[11px] text-indigo-500 font-bold mt-0.5">Silver Orator</div>
           </div>
         </Card>
 
@@ -144,6 +144,7 @@ export const DashboardPage: React.FC = () => {
           </div>
         </Card>
       </div>
+
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -213,6 +214,78 @@ export const DashboardPage: React.FC = () => {
             </div>
           </Card>
 
+          {/* Leaderboard Mini Widget */}
+          <Card className="neu-flat">
+            <div className="flex items-center justify-between pb-4 border-b border-white/20 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <Crown className="w-5 h-5 text-amber-500" />
+                <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">Speaking Leaderboard</h3>
+              </div>
+              <Link to="/leaderboard" className="text-xs text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline flex items-center gap-1">
+                Full Rankings <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            <div className="space-y-3 mt-4">
+              <div className="p-3 rounded-2xl neu-pressed flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-amber-400/20 text-amber-500 text-xs font-black flex items-center justify-center">
+                    🥇
+                  </span>
+                  <img
+                    src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80"
+                    alt="Elena"
+                    className="w-7 h-7 rounded-full object-cover"
+                  />
+                  <div>
+                    <div className="font-extrabold text-xs text-slate-900 dark:text-white">Elena Rostova</div>
+                    <div className="text-[10px] text-slate-400">Level 9 • 95 Avg</div>
+                  </div>
+                </div>
+                <span className="font-mono font-black text-xs text-amber-500">4,850 EXP</span>
+              </div>
+
+              <div className="p-3 rounded-2xl neu-pressed flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-slate-400/20 text-slate-400 text-xs font-black flex items-center justify-center">
+                    🥈
+                  </span>
+                  <img
+                    src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80"
+                    alt="Marcus"
+                    className="w-7 h-7 rounded-full object-cover"
+                  />
+                  <div>
+                    <div className="font-extrabold text-xs text-slate-900 dark:text-white">Marcus Vance</div>
+                    <div className="text-[10px] text-slate-400">Level 8 • 93 Avg</div>
+                  </div>
+                </div>
+                <span className="font-mono font-black text-xs text-slate-400">4,200 EXP</span>
+              </div>
+
+              <div className="p-3 rounded-2xl neu-button border border-indigo-500/30 flex items-center justify-between gap-3 shadow-neu-glow">
+                <div className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-black flex items-center justify-center">
+                    3
+                  </span>
+                  <img
+                    src={user?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80'}
+                    alt="You"
+                    className="w-7 h-7 rounded-full object-cover"
+                  />
+                  <div>
+                    <div className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1">
+                      <span>{user?.fullName || 'Your Account'}</span>
+                      <Badge variant="indigo" size="sm">You</Badge>
+                    </div>
+                    <div className="text-[10px] text-slate-400">Level {user?.level || 1} • Rank #3</div>
+                  </div>
+                </div>
+                <span className="font-mono font-black text-xs text-indigo-600 dark:text-indigo-400">{user?.exp || 1850} EXP</span>
+              </div>
+            </div>
+          </Card>
+
           <Card className="neu-flat">
             <div className="flex items-center justify-between pb-4 border-b border-white/20 dark:border-white/5">
               <div className="flex items-center gap-2">
@@ -225,7 +298,7 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             <div className="space-y-3 mt-4">
-              {mockAchievements.map((ach) => (
+              {mockAchievements.slice(0, 3).map((ach) => (
                 <div key={ach.id} className="p-3 rounded-2xl neu-pressed flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${ach.unlocked ? 'neu-button text-amber-500' : 'text-slate-400'}`}>
                     <Award className="w-5 h-5" />
@@ -244,3 +317,4 @@ export const DashboardPage: React.FC = () => {
     </div>
   );
 };
+

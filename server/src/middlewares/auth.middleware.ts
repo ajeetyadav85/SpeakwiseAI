@@ -34,7 +34,7 @@ export const authenticateJWT = (req: Request, _res: Response, next: NextFunction
       if (req.headers['x-demo-user-id']) {
         req.user = {
           id: req.headers['x-demo-user-id'] as string,
-          email: 'alex.morgan@speakwise.ai',
+          email: 'demo@speakwise.ai',
           role: 'PRO_USER',
         };
         return next();
@@ -67,10 +67,11 @@ export const optionalJWT = (req: Request, _res: Response, next: NextFunction): v
     } else if (req.headers['x-demo-user-id']) {
       req.user = {
         id: req.headers['x-demo-user-id'] as string,
-        email: 'alex.morgan@speakwise.ai',
+        email: 'demo@speakwise.ai',
         role: (req.headers['x-demo-user-role'] as UserRole) || 'PRO_USER',
       };
     }
+
   } catch (e) {
     // Ignore invalid token for optional auth, treat as guest
   }

@@ -40,6 +40,7 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { ShareModal } from '../components/report/ShareModal';
 import { ExportModal } from '../components/report/ExportModal';
+import { PronunciationFeedbackSection } from '../components/report/PronunciationFeedbackSection';
 
 export const ReportDetailPage: React.FC = () => {
   const { id = 'rep_88491' } = useParams<{ id: string }>();
@@ -47,9 +48,10 @@ export const ReportDetailPage: React.FC = () => {
   const report = getReportById(id);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'SCORES' | 'TRANSCRIPT' | 'ACOUSTICS'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'PRONUNCIATION' | 'SCORES' | 'TRANSCRIPT' | 'ACOUSTICS'>('OVERVIEW');
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
 
   // Dynamic Radar Chart Data
   const radarData = [
@@ -194,6 +196,7 @@ export const ReportDetailPage: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-white/20 dark:border-white/5 pb-2 overflow-x-auto">
         {[
           { id: 'OVERVIEW', label: 'AI Re-writer & Drills' },
+          { id: 'PRONUNCIATION', label: 'AI Pronunciation & Phonetics', badge: 'AI' },
           { id: 'SCORES', label: 'Detailed Metric Breakdown' },
           { id: 'TRANSCRIPT', label: 'Timestamped Transcript' },
           { id: 'ACOUSTICS', label: 'Acoustic Signal Graphs' },
@@ -201,13 +204,18 @@ export const ReportDetailPage: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${
+            className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all flex items-center gap-2 ${
               activeTab === tab.id
-                ? 'bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30'
+                ? 'bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-bold'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            {tab.label}
+            <span>{tab.label}</span>
+            {tab.badge && (
+              <span className="text-[10px] bg-gradient-to-r from-indigo-500 to-violet-500 text-white font-extrabold px-1.5 py-0.5 rounded-full">
+                {tab.badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -262,6 +270,12 @@ export const ReportDetailPage: React.FC = () => {
           </Card>
         </div>
       )}
+
+      {/* Tab: Pronunciation Feedback Section */}
+      {activeTab === 'PRONUNCIATION' && (
+        <PronunciationFeedbackSection pronunciation={report.pronunciationAnalysis} />
+      )}
+
 
       {/* Tab 2: Detailed Metric Breakdown Grid (Requirement 2D Output Example) */}
       {activeTab === 'SCORES' && (

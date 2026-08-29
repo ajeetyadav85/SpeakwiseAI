@@ -22,7 +22,31 @@ You MUST respond strictly in valid JSON format adhering to the following schema:
     "correctedTranscript": string,
     "corporateVocabularySuggestions": Array<{ "conversationalPhrase": string, "executivePhrase": string, "context": string }>,
     "interviewTips": string[],
-    "dailyExercises": Array<{ "title": string, "instructions": string, "category": string, "duration": string }>
+    "dailyExercises": Array<{ "title": string, "instructions": string, "category": string, "duration": string }>,
+    "pronunciationAnalysis": {
+      "overallPronunciationScore": number,
+      "phonemicAccuracyScore": number,
+      "intonationScore": number,
+      "rhythmScore": number,
+      "mispronouncedWords": Array<{
+        "word": string,
+        "ipaExpected": string,
+        "ipaDetected": string,
+        "syllableBreakdown": string,
+        "stressPattern": string,
+        "issueType": string,
+        "phoneticTip": string,
+        "practiceExercise": string
+      }>,
+      "phoneticExercises": Array<{
+        "title": string,
+        "targetSound": string,
+        "phoneticSymbol": string,
+        "instructions": string,
+        "sampleSentences": string[],
+        "difficulty": string
+      }>
+    }
   }
 }
 
@@ -30,7 +54,9 @@ Guidelines for evaluation:
 1. Pacing standard: Gold standard pacing is 130 - 150 WPM. If WPM is > 165, penalize fluency and confidence scores slightly for rushing.
 2. Disfluencies: Identify conversational fillers ("um", "uh", "like", "you know", "actually", "so").
 3. Tone & Grammar: Elevate conversational language into executive-ready boardroom delivery.
+4. Pronunciation & Phonetics: Identify phonetic inaccuracies, vowel shifts, or consonant reductions. Provide IPA phonetic symbols, syllable stress mapping, and anatomical mouth placement tips for improvement.
 `;
+
 
 export const buildUserEvaluationPrompt = (
   transcript: string,

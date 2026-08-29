@@ -68,8 +68,71 @@ export class GeminiAIService {
             duration: '3 Mins',
           },
         ],
+        pronunciationAnalysis: {
+          overallPronunciationScore: 88,
+          phonemicAccuracyScore: 90,
+          intonationScore: 85,
+          rhythmScore: 89,
+          mispronouncedWords: [
+            {
+              word: 'revolutionizing',
+              ipaExpected: '/ˌrev.əˈluː.ʃən.aɪ.zɪŋ/',
+              ipaDetected: '/ˌrev.əˈluː.ʃən.eɪ.zɪŋ/',
+              syllableBreakdown: 'rev-o-LU-tion-i-zing',
+              stressPattern: 'Primary stress on 3rd syllable "LU"',
+              issueType: 'Vowel diphthong shift (/aɪ/ vs /eɪ/)',
+              phoneticTip: 'Open mouth wider and glide from open /a/ up towards front /ɪ/ on "-ize-". Do not flatten into "ay".',
+              practiceExercise: 'Repeat 3 times: "Revolutionize -> Revolutionizing -> Revolutionized"',
+            },
+            {
+              word: 'instantaneously',
+              ipaExpected: '/ˌɪn.stənˈteɪ.ni.əs.li/',
+              ipaDetected: '/ˌɪn.stənˈtiː.ni.əs.li/',
+              syllableBreakdown: 'in-stan-TA-ne-ous-ly',
+              stressPattern: 'Primary stress on 3rd syllable "TA"',
+              issueType: 'Syllable vowel compression',
+              phoneticTip: 'Elongate the stressed "TA" /teɪ/ vowel before moving to the unstressed "-ne-ous" cadence.',
+              practiceExercise: 'Tap on your desk on the "TA" beat: in-stan-[TAP]-ne-ous-ly.',
+            },
+            {
+              word: 'multimodal',
+              ipaExpected: '/ˌmʌl.tiˈmoʊ.dəl/',
+              ipaDetected: '/ˌmʊl.tiˈmɒ.dəl/',
+              syllableBreakdown: 'mul-ti-MO-dal',
+              stressPattern: 'Primary stress on "MO"',
+              issueType: 'Vowel height in "multi" & roundness in "modal"',
+              phoneticTip: 'Keep /ʌ/ relaxed and central in "mul-", then round lips fully into /oʊ/ for "-mo-".',
+              practiceExercise: 'Minimal pair cadence: "Multiple" -> "Modal" -> "Multimodal".',
+            },
+          ],
+          phoneticExercises: [
+            {
+              title: 'The /aɪ/ vs /eɪ/ Vowel Clarity Matrix',
+              targetSound: 'Long /aɪ/ diphthong',
+              phoneticSymbol: '/aɪ/',
+              instructions: 'Focus on jaw drop when transitioning into the glide. Keep tongue high on the end sound.',
+              sampleSentences: [
+                'SpeakWise AI identifies dynamic real-time pacing metrics.',
+                'The enterprise pricing model provides high return on investment.',
+              ],
+              difficulty: 'Intermediate',
+            },
+            {
+              title: 'Polysyllabic Stress & Cadence Drill',
+              targetSound: 'Multi-syllable word stress',
+              phoneticSymbol: 'ˈ primary stress',
+              instructions: 'Pronounce the stressed syllable with 15% higher volume and longer duration than surrounding unstressed syllables.',
+              sampleSentences: [
+                'We instantaneously process proprietary acoustic telemetry.',
+                'Multimodal feedback enhances executive communication confidence.',
+              ],
+              difficulty: 'Advanced',
+            },
+          ],
+        },
       };
     } catch (error) {
+
       logger.error('Error in GeminiAIService:', error);
       throw error;
     }

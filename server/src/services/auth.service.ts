@@ -18,7 +18,8 @@ export class AuthService {
   }
 
   static async register(fullName: string, email: string, password: string) {
-    const existing = await UserModel.findOne({ email });
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await UserModel.findOne({ email: normalizedEmail });
     if (existing) {
       throw new BadRequestError('Email address is already registered');
     }
@@ -26,76 +27,72 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await UserModel.create({
       fullName,
-      email,
+      email: normalizedEmail,
       passwordHash,
       role: 'PRO_USER',
+      authProvider: 'email',
     });
 
     const tokens = this.generateTokens(user._id.toString(), user.email, user.role);
+    const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
+    user.refreshTokenHash = refreshTokenHash;
+    await user.save();
+
     return { user, tokens };
   }
 
   static async login(email: string, password: string) {
-    const user = await UserModel.findOne({ email });
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await UserModel.findOne({ email: normalizedEmail });
     if (!user) {
-      // Demo fallback: Return instant demo user if DB has no record
-      const demoId = 'usr_demo99';
-      const tokens = this.generateTokens(demoId, email, 'PRO_USER');
-      return {
-        user: {
-          id: demoId,
-          email,
-          fullName: 'Alex Morgan',
-          role: 'PRO_USER' as UserRole,
-          streakDays: 7,
-          totalPracticeMinutes: 142,
-          averageScore: 88,
-        },
-        tokens,
-      };
+      throw new UnauthorizedError('Invalid email or password');
+    }
+
+    if (user.passwordHash === 'GOOGLE_OAUTH_USER' && user.authProvider === 'google') {
+      throw new BadRequestError('This account was created using Google Sign-In. Please sign in with Google.');
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      throw new UnauthorizedError('Invalid credentials');
+      throw new UnauthorizedError('Invalid email or password');
     }
 
     const tokens = this.generateTokens(user._id.toString(), user.email, user.role);
+    const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
+    user.refreshTokenHash = refreshTokenHash;
+    await user.save();
+
     return { user, tokens };
   }
 
   static async googleLogin(email: string, fullName: string, googleId: string, avatarUrl?: string) {
-    try {
-      let user = await UserModel.findOne({ email });
-      if (!user) {
-        user = await UserModel.create({
-          fullName: fullName || email.split('@')[0],
-          email,
-          passwordHash: 'GOOGLE_OAUTH_USER',
-          role: 'PRO_USER',
-          avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-        });
-      }
+    const normalizedEmail = email.toLowerCase().trim();
+    let user = await UserModel.findOne({ email: normalizedEmail });
 
-      const tokens = this.generateTokens(user._id.toString(), user.email, user.role);
-      return { user, tokens };
-    } catch (e) {
-      // Demo mode fallback
-      const demoId = 'usr_g_' + Math.floor(Math.random() * 8999 + 1000);
-      const tokens = this.generateTokens(demoId, email, 'PRO_USER');
-      return {
-        user: {
-          id: demoId,
-          email,
-          fullName: fullName || email.split('@')[0],
-          role: 'PRO_USER' as UserRole,
-          avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-          streakDays: 1,
-          totalPracticeMinutes: 0,
-          averageScore: 90,
-        },
-        tokens,
-      };
+    if (!user) {
+      user = await UserModel.create({
+        fullName: fullName || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        passwordHash: 'GOOGLE_OAUTH_USER',
+        role: 'PRO_USER',
+        authProvider: 'google',
+        googleId: googleId || undefined,
+        avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+      });
+    } else {
+      if (!user.googleId && googleId) {
+        user.googleId = googleId;
+      }
+      if (avatarUrl && (!user.avatarUrl || user.avatarUrl.includes('unsplash'))) {
+        user.avatarUrl = avatarUrl;
+      }
     }
+
+    const tokens = this.generateTokens(user._id.toString(), user.email, user.role);
+    const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 10);
+    user.refreshTokenHash = refreshTokenHash;
+    await user.save();
+
+    return { user, tokens };
   }
 }

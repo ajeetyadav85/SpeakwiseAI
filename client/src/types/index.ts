@@ -1,5 +1,20 @@
 export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PRO_USER' | 'FREESTYLE_USER' | 'FREE_USER';
 
+export type SubscriptionPlanId = '1_DAY' | '1_WEEK' | '1_MONTH' | '3_MONTH' | '6_MONTH' | '1_YEAR';
+
+export interface SubscriptionPlanOption {
+  id: SubscriptionPlanId;
+  name: string;
+  durationLabel: string;
+  validityText: string;
+  durationHours: number;
+  priceInr: number;
+  badge?: string;
+  popular?: boolean;
+  savings?: string;
+  description: string;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -11,8 +26,13 @@ export interface User {
   totalPracticeMinutes: number;
   averageScore: number;
   targetWpm: number;
+  exp?: number;
+  level?: number;
+  subscriptionPlan?: SubscriptionPlanId;
+  subscriptionExpiresAt?: string;
   createdAt: string;
 }
+
 
 export type PracticeMode = 'FREE_PRACTICE' | 'ELEVATOR_PITCH' | 'KEYNOTE_PREP' | 'INTERVIEW_DRILL' | 'DAILY_CHALLENGE';
 
@@ -46,6 +66,36 @@ export interface SentenceImprovement {
   originalText: string;
   improvedText: string;
   reasoning: string;
+}
+
+export interface MispronouncedWord {
+  word: string;
+  ipaExpected: string;
+  ipaDetected: string;
+  syllableBreakdown: string;
+  stressPattern: string;
+  issueType: string;
+  phoneticTip: string;
+  practiceExercise: string;
+  audioWord?: string;
+}
+
+export interface PhoneticExercise {
+  title: string;
+  targetSound: string;
+  phoneticSymbol: string;
+  instructions: string;
+  sampleSentences: string[];
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | string;
+}
+
+export interface PronunciationAnalysis {
+  overallPronunciationScore: number;
+  phonemicAccuracyScore: number;
+  intonationScore: number;
+  rhythmScore: number;
+  mispronouncedWords: MispronouncedWord[];
+  phoneticExercises: PhoneticExercise[];
 }
 
 export interface SpeechReport {
@@ -90,6 +140,7 @@ export interface SpeechReport {
       category: string;
     }[];
   };
+  pronunciationAnalysis?: PronunciationAnalysis;
 }
 
 export interface PracticeSession {
@@ -113,6 +164,23 @@ export interface Achievement {
   unlocked: boolean;
   unlockedAt?: string;
   progress: number; // 0 - 100
+  category?: 'STREAK' | 'MILESTONE' | 'PRECISION' | 'CHALLENGE' | 'PRONUNCIATION' | string;
+  expReward?: number;
+}
+
+export interface LeaderboardUser {
+  rank: number;
+  userId: string;
+  fullName: string;
+  avatarUrl: string;
+  role: string;
+  exp: number;
+  level: number;
+  streakDays: number;
+  averageScore: number;
+  totalPracticeMinutes: number;
+  badgeCount: number;
+  isCurrentUser?: boolean;
 }
 
 export interface DailyChallenge {
@@ -135,3 +203,4 @@ export interface AppNotification {
   read: boolean;
   type: 'ACHIEVEMENT' | 'REPORT_READY' | 'STREAK_REMINDER' | 'SYSTEM';
 }
+

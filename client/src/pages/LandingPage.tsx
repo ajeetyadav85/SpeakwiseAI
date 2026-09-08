@@ -4,6 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useThemeStore } from '../stores/useThemeStore';
 import { useSubscriptionStore } from '../stores/useSubscriptionStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useReportStore } from '../stores/useReportStore';
+import { SpeechReport } from '../types';
+import { SpeechEvaluatorService } from '../services/speechEvaluator.service';
+import {
+  GOAL_CATEGORIES,
+  GoalTopicItem,
+  createCustomPrompt,
+} from '../data/goalTopicsData';
 import {
   Sparkles,
   Zap,
@@ -19,57 +27,21 @@ import {
   Play,
   RotateCcw,
   CheckCircle2,
+  AlertCircle,
   Crown,
   LogIn,
   UserPlus,
   Volume2,
   Clock,
+  Target,
+  PenTool,
+  Check,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Footer } from '../components/layout/Footer';
-
-
-interface PromptItem {
-  id: string;
-  category: string;
-  prompt: string;
-  hint: string;
-}
-
-const SAMPLE_PROMPTS: PromptItem[] = [
-  {
-    id: 'p1',
-    category: 'AI & Tech',
-    prompt: 'Will Artificial Intelligence replace traditional education in the next decade?',
-    hint: 'State your thesis, present 2 contrasting examples, and conclude on human-AI synergy.',
-  },
-  {
-    id: 'p2',
-    category: 'Startup & VC',
-    prompt: 'Pitching a high-growth SaaS startup to tier-1 venture capital partners',
-    hint: 'Highlight ARR growth rate, customer retention Cohort, and the unfair moat.',
-  },
-  {
-    id: 'p3',
-    category: 'Leadership',
-    prompt: 'Overcoming imposter syndrome and owning your authentic executive voice',
-    hint: 'Share a personal inflection moment and provide 2 tactical leadership habits.',
-  },
-  {
-    id: 'p4',
-    category: 'Current Affairs',
-    prompt: 'How circular economy principles will eliminate global industrial waste',
-    hint: 'Discuss cradle-to-cradle design, supply chain incentives, and consumer behavior.',
-  },
-  {
-    id: 'p5',
-    category: 'Public Speaking',
-    prompt: 'The psychology of peak vocal performance during high-stakes keynote speeches',
-    hint: 'Focus on diaphragmatic breathing, strategic pause control, and eye engagement.',
-  },
-];
 
 const DURATION_OPTIONS = [
   { label: '30s', seconds: 30 },
@@ -83,10 +55,18 @@ export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useThemeStore();
   const { user, isAuthenticated } = useAuthStore();
-  const { openSubscriptionModal } = useSubscriptionStore();
+  const { isPro, openSubscriptionModal } = useSubscriptionStore();
+
+  const isUserAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN';
+  const hasProAccess = isPro || isUserAdmin;
 
   // Selected duration (default 60 seconds)
   const [selectedDuration, setSelectedDuration] = useState<number>(60);
+
+  // Goal-oriented topics state
+  const [selectedGoalId, setSelectedGoalId] = useState<string>('everyday-english');
+  const [customInput, setCustomInput] = useState<string>('');
+  const [customItems, setCustomItems] = useState<GoalTopicItem[]>([]);
   const [currentPromptIndex, setCurrentPromptIndex] = useState<number>(0);
 
   // In-Page Live Practice State
@@ -97,6 +77,8 @@ export const LandingPage: React.FC = () => {
   const [micVolume, setMicVolume] = useState<number>(0);
   const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
+  const [analysisReport, setAnalysisReport] = useState<SpeechReport | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
   // Web Audio & Speech Recognition Refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -105,15 +87,51 @@ export const LandingPage: React.FC = () => {
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
 
-  const activePrompt = SAMPLE_PROMPTS[currentPromptIndex];
+  // Determine current active goal and prompt list
+  const activeGoal = GOAL_CATEGORIES.find((g) => g.id === selectedGoalId) || GOAL_CATEGORIES[0];
+  const activePromptsList: GoalTopicItem[] =
+    selectedGoalId === 'custom'
+      ? customItems.length > 0
+        ? customItems
+        : activeGoal.prompts
+      : activeGoal.prompts;
 
-  // Spin to next prompt
+  const safePromptIndex = currentPromptIndex % activePromptsList.length;
+  const activePrompt: GoalTopicItem = activePromptsList[safePromptIndex] || activeGoal.prompts[0];
+
+  // Spin to next prompt in current goal
   const handleNextPrompt = () => {
     if (isPracticing) return;
-    setCurrentPromptIndex((prev) => (prev + 1) % SAMPLE_PROMPTS.length);
+    setCurrentPromptIndex((prev) => (prev + 1) % activePromptsList.length);
   };
 
-  // Start in-page practice (No navigation!)
+  // Select a Goal Category
+  const handleSelectGoal = (goalId: string) => {
+    if (isPracticing) return;
+    setSelectedGoalId(goalId);
+    setCurrentPromptIndex(0);
+  };
+
+  // Add custom user-written topic or word
+  const handleAddCustomPrompt = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customInput.trim() || isPracticing) return;
+
+    const newItem = createCustomPrompt(customInput);
+    setCustomItems((prev) => [newItem, ...prev]);
+    setSelectedGoalId('custom');
+    setCurrentPromptIndex(0);
+    setCustomInput('');
+  };
+
+  const handleSelectCustomItem = (item: GoalTopicItem) => {
+    if (isPracticing) return;
+    const idx = customItems.findIndex((c) => c.id === item.id);
+    setSelectedGoalId('custom');
+    setCurrentPromptIndex(idx >= 0 ? idx : 0);
+  };
+
+  // Start in-page practice
   const handleStartInPagePractice = async () => {
     setIsPracticing(true);
     setIsPaused(false);
@@ -121,6 +139,7 @@ export const LandingPage: React.FC = () => {
     setElapsedSeconds(0);
     setLiveTranscript('');
     setShowCompletionModal(false);
+    setAnalysisReport(null);
 
     // Initialize Web Audio API Microphone Volume meter
     try {
@@ -157,7 +176,7 @@ export const LandingPage: React.FC = () => {
       console.warn('Microphone permission denied or not supported:', err);
     }
 
-    // Initialize Web Speech Recognition if available in browser
+    // Initialize Web Speech Recognition for Real-Time Text Transcription
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -230,11 +249,43 @@ export const LandingPage: React.FC = () => {
   };
 
   // Stop in-page practice
-  const handleStopInPagePractice = () => {
+  const handleStopInPagePractice = async () => {
     stopAudioStreams();
     setIsPracticing(false);
     setIsPaused(false);
     setShowCompletionModal(true);
+
+    const actualDuration = Math.max(1, elapsedSeconds);
+
+    if (!hasProAccess) {
+      // Free/Guest users see the Pro pass upgrade prompt directly
+      return;
+    }
+
+    // Pro users receive real-time speech evaluation based strictly on what was spoken
+    setIsAnalyzing(true);
+    try {
+      const evalResult = await SpeechEvaluatorService.evaluateSpeech({
+        topicTitle: activePrompt.word ? `Practice Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt,
+        topicCategory: activePrompt.category,
+        transcript: liveTranscript,
+        durationSeconds: actualDuration,
+      });
+
+      const report = SpeechEvaluatorService.createSpeechReport(
+        evalResult,
+        activePrompt.word ? `Word - ${activePrompt.word}` : activePrompt.prompt,
+        liveTranscript,
+        actualDuration
+      );
+
+      setAnalysisReport(report);
+      useReportStore.getState().saveReport(report);
+    } catch (err) {
+      console.error('Speech evaluation failed:', err);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   // Reset practice
@@ -246,6 +297,7 @@ export const LandingPage: React.FC = () => {
     setElapsedSeconds(0);
     setLiveTranscript('');
     setShowCompletionModal(false);
+    setAnalysisReport(null);
   };
 
   useEffect(() => {
@@ -260,18 +312,13 @@ export const LandingPage: React.FC = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const progressPercentage = Math.min(
-    100,
-    Math.round(((selectedDuration - timeLeft) / selectedDuration) * 100)
-  );
-
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-200 relative overflow-hidden flex flex-col justify-between p-4 sm:p-6">
       {/* Background Soft Glow */}
       <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[850px] h-[400px] bg-gradient-to-tr from-indigo-500/10 via-violet-500/10 to-cyan-500/10 blur-[140px] pointer-events-none rounded-full" />
 
       {/* Main Single-Screen Hero Section */}
-      <div className="max-w-7xl mx-auto w-full my-auto py-6 relative z-10">
+      <div className="max-w-7xl mx-auto w-full my-auto py-4 relative z-10 space-y-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           {/* Left Column: Value Proposition */}
           <div className="lg:col-span-6 space-y-6 text-left">
@@ -281,7 +328,7 @@ export const LandingPage: React.FC = () => {
               className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full neu-pressed text-indigo-700 dark:text-indigo-400 text-xs font-extrabold"
             >
               <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Free Instant Public Speaking Practice</span>
+              <span>Goal-Oriented AI Speech Coaching</span>
             </motion.div>
 
             <motion.h1
@@ -290,7 +337,7 @@ export const LandingPage: React.FC = () => {
               transition={{ delay: 0.1 }}
               className="text-4xl sm:text-6xl font-black text-slate-900 dark:text-white tracking-tight leading-[1.15]"
             >
-              Impromptu Speaking
+              Master English for Your Career Goals
             </motion.h1>
 
             <motion.p
@@ -299,7 +346,7 @@ export const LandingPage: React.FC = () => {
               transition={{ delay: 0.15 }}
               className="text-base text-slate-600 dark:text-slate-400 font-medium leading-relaxed max-w-lg"
             >
-              Select your speaking timer, generate a prompt, and speak live directly on this page. Practice freely without logging in! 🎙️
+              Select what you want to improve below or write your own topic/word. Speak live with real-time text transcription, spin for new prompts, and receive instant AI analysis! 🎙️
             </motion.p>
 
             {/* Feature Badges */}
@@ -310,17 +357,16 @@ export const LandingPage: React.FC = () => {
               className="flex flex-wrap items-center gap-3 pt-2"
             >
               <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-button text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>⏱️ Custom Timers</span>
+                <span>🎯 Goal-Oriented Prompts</span>
               </div>
               <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-button text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>🎙️ Live Mic Detection</span>
+                <span>📝 Live Transcription in Text</span>
               </div>
               <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-button text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>⚡ AI Analysis</span>
+                <span>⚡ Instant Simplified Analysis</span>
               </div>
             </motion.div>
           </div>
-
 
           {/* Right Column: In-Page Speaking Card */}
           <div className="lg:col-span-6">
@@ -329,19 +375,27 @@ export const LandingPage: React.FC = () => {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.25 }}
             >
-              <Card className="p-6 sm:p-8 rounded-3xl neu-flat text-center relative overflow-hidden flex flex-col justify-between min-h-[420px]">
+              <Card className="p-6 sm:p-8 rounded-3xl neu-flat text-center relative overflow-hidden flex flex-col justify-between min-h-[440px]">
                 {/* State A: Idle Selection Mode */}
                 {!isPracticing ? (
                   <div className="flex flex-col justify-between h-full space-y-6">
                     {/* Header: Category & Spin Button */}
                     <div className="flex items-center justify-between text-xs font-semibold border-b border-white/20 dark:border-white/5 pb-3">
                       <div className="flex items-center gap-2">
-                        <Badge variant="indigo">{activePrompt.category}</Badge>
-                        <span className="text-[11px] font-bold text-slate-500 font-mono">PROMPT #{currentPromptIndex + 1}</span>
+                        <Badge variant="indigo">
+                          {activePrompt.categoryEmoji} {activePrompt.category}
+                        </Badge>
+                        <Badge variant={activePrompt.type === 'WORD' ? 'amber' : 'violet'}>
+                          {activePrompt.type === 'WORD' ? 'Vocabulary Word' : 'Topic'}
+                        </Badge>
+                        <span className="text-[11px] font-bold text-slate-500 font-mono hidden sm:inline">
+                          #{safePromptIndex + 1}/{activePromptsList.length}
+                        </span>
                       </div>
                       <button
                         onClick={handleNextPrompt}
                         className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline"
+                        title="Spin to the next prompt in this category"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                         <span>Spin Next Topic</span>
@@ -349,10 +403,24 @@ export const LandingPage: React.FC = () => {
                     </div>
 
                     {/* Active Prompt Text */}
-                    <div className="py-2 my-auto">
-                      <h3 className="text-xl sm:text-2xl font-serif italic text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
-                        "{activePrompt.prompt}"
-                      </h3>
+                    <div className="py-2 my-auto text-left">
+                      {activePrompt.word ? (
+                        <div className="space-y-2">
+                          <span className="text-xs uppercase font-extrabold tracking-widest text-indigo-500">
+                            Practice Word:
+                          </span>
+                          <h3 className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-wide font-mono">
+                            "{activePrompt.word}"
+                          </h3>
+                          <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                            {activePrompt.prompt}
+                          </p>
+                        </div>
+                      ) : (
+                        <h3 className="text-xl sm:text-2xl font-serif italic text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                          "{activePrompt.prompt}"
+                        </h3>
+                      )}
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 font-medium bg-slate-100 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
                         💡 <strong className="text-slate-800 dark:text-slate-200">Coach Hint:</strong> {activePrompt.hint}
                       </p>
@@ -404,7 +472,7 @@ export const LandingPage: React.FC = () => {
                   </div>
                 ) : (
                   /* State B: Active In-Page Recording HUD */
-                  <div className="flex flex-col justify-between h-full space-y-5 animate-in fade-in">
+                  <div className="flex flex-col justify-between h-full space-y-4 animate-in fade-in">
                     {/* Live Recording Header */}
                     <div className="flex items-center justify-between pb-3 border-b border-white/20 dark:border-white/5">
                       <div className="flex items-center gap-2">
@@ -413,18 +481,20 @@ export const LandingPage: React.FC = () => {
                           LIVE SPEAKING SESSION
                         </span>
                       </div>
-                      <Badge variant="indigo">{activePrompt.category}</Badge>
+                      <Badge variant="indigo">
+                        {activePrompt.categoryEmoji} {activePrompt.category}
+                      </Badge>
                     </div>
 
                     {/* Active Prompt Reminder */}
                     <div className="p-3 rounded-2xl neu-pressed text-xs font-serif italic text-slate-800 dark:text-slate-200">
-                      "{activePrompt.prompt}"
+                      "{activePrompt.word ? `Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt}"
                     </div>
 
-                    {/* Center Big Countdown Timer */}
+                    {/* Center Big Countdown Timer & Mic Level */}
                     <div className="flex flex-col items-center justify-center my-auto space-y-3">
-                      <div className="w-32 h-32 rounded-full neu-button flex flex-col items-center justify-center relative shadow-neu-glow border-4 border-indigo-500/30">
-                        <span className="text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight">
+                      <div className="w-28 h-28 rounded-full neu-button flex flex-col items-center justify-center relative shadow-neu-glow border-4 border-indigo-500/30">
+                        <span className="text-2xl sm:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight">
                           {formatSeconds(timeLeft)}
                         </span>
                         <span className="text-[10px] uppercase font-bold text-indigo-500">Remaining</span>
@@ -447,13 +517,23 @@ export const LandingPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Live Speech Recognition Transcript Preview */}
-                      {liveTranscript && (
-                        <div className="w-full max-w-md p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-700 dark:text-slate-300 max-h-16 overflow-y-auto text-left">
-                          <span className="text-slate-400 font-bold">Transcribing: </span>
-                          <span>{liveTranscript}</span>
+                      {/* Prominent Live Speech Transcription in Text */}
+                      <div className="w-full max-w-md p-3.5 rounded-2xl neu-pressed text-left space-y-1.5 border border-indigo-500/20">
+                        <div className="flex items-center justify-between text-[11px] font-bold">
+                          <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                            <span>Live Speech Transcription:</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">Real-Time Text</span>
                         </div>
-                      )}
+                        <div className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 min-h-[44px] max-h-24 overflow-y-auto leading-relaxed">
+                          {liveTranscript ? (
+                            <span className="animate-in fade-in">{liveTranscript}</span>
+                          ) : (
+                            <span className="text-slate-400 italic">Listening... Start speaking into your mic to see your words live.</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Active Recording Controls */}
@@ -494,111 +574,405 @@ export const LandingPage: React.FC = () => {
             </motion.div>
           </div>
         </div>
+
+        {/* ============================================================ */}
+        {/* GOAL-ORIENTED TOPICS SECTION: What do you want to improve?  */}
+        {/* ============================================================ */}
+        <div className="space-y-6 pt-6 border-t border-slate-200/60 dark:border-slate-800/80">
+          <div className="text-center sm:text-left space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full neu-pressed text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-wider">
+              <Target className="w-3.5 h-3.5" />
+              <span>Goal-Oriented Speaking</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+              What do you want to improve?
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
+              Choose your practice goal below to load curated topics and vocabulary words, or write your own custom topic/word.
+            </p>
+          </div>
+
+          {/* 10 Curated Goal Category Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {GOAL_CATEGORIES.map((goal) => {
+              const isSelected = selectedGoalId === goal.id;
+              return (
+                <button
+                  key={goal.id}
+                  onClick={() => handleSelectGoal(goal.id)}
+                  className={`p-3.5 rounded-2xl text-left transition-all flex flex-col justify-between space-y-2 border ${
+                    isSelected
+                      ? 'bg-indigo-600/10 border-indigo-500 shadow-md shadow-indigo-500/10 text-indigo-900 dark:text-white ring-2 ring-indigo-500/30'
+                      : 'neu-button border-transparent hover:border-indigo-500/30 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span className="text-2xl">{goal.emoji}</span>
+                  <div>
+                    <div className="text-xs sm:text-sm font-extrabold line-clamp-1">{goal.name}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1 font-medium mt-0.5">
+                      {goal.prompts.length} topics & words
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Write your own topic or word */}
+          <div className="p-4 sm:p-5 rounded-3xl neu-flat space-y-3 border border-indigo-500/20">
+            <div className="flex items-center gap-2 text-xs font-black text-slate-900 dark:text-white">
+              <PenTool className="w-4 h-4 text-indigo-500" />
+              <span>Write your own topic or word:</span>
+            </div>
+            <form onSubmit={handleAddCustomPrompt} className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                placeholder="Enter your own topic (e.g. 'Overcoming fear in tech talks') or single word (e.g. 'Resilience')..."
+                className="flex-1 px-4 py-3 rounded-2xl neu-pressed text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                className="rounded-2xl px-6 font-extrabold text-xs whitespace-nowrap shadow-neu-glow"
+                disabled={!customInput.trim()}
+              >
+                Add & Practice
+              </Button>
+            </form>
+
+            {customItems.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-[11px] font-bold text-slate-500">Your Added Topics:</span>
+                {customItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => handleSelectCustomItem(item)}
+                    className={`px-3 py-1 rounded-xl text-xs font-extrabold transition-all ${
+                      activePrompt.id === item.id
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'neu-pressed text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {item.word ? `Word: ${item.word}` : item.prompt.slice(0, 24) + '...'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Floating Bottom Left Theme Controls */}
-
-      {/* Post-Session Analysis & Login/Upgrade Modal */}
+      {/* Post-Session Analysis & Pro Gating Modal */}
       <AnimatePresence>
         {showCompletionModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in overflow-y-auto">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-md"
+              className="w-full max-w-lg my-8"
             >
-              <Card className="p-6 sm:p-8 space-y-6 neu-flat rounded-3xl text-center relative border border-indigo-500/30 shadow-2xl">
-                <div className="w-16 h-16 rounded-3xl neu-button text-emerald-500 mx-auto flex items-center justify-center shadow-neu-glow">
-                  <CheckCircle2 className="w-9 h-9" />
+              <Card className="p-6 sm:p-8 space-y-5 neu-flat rounded-3xl text-center relative border border-indigo-500/30 shadow-2xl">
+                <div className="w-14 h-14 rounded-2xl neu-button text-emerald-500 mx-auto flex items-center justify-center shadow-neu-glow">
+                  <CheckCircle2 className="w-8 h-8" />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <Badge variant="emerald">Session Complete</Badge>
-                  <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                     Great Speaking Practice!
                   </h3>
                   <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
-                    You practiced for <strong className="text-slate-900 dark:text-white font-bold">{elapsedSeconds} seconds</strong> on <em>"{activePrompt.prompt}"</em>.
+                    You spoke for <strong className="text-slate-900 dark:text-white font-bold">{elapsedSeconds} seconds</strong> on{' '}
+                    <em>"{activePrompt.word ? activePrompt.word : activePrompt.prompt.slice(0, 50)}..."</em>
                   </p>
                 </div>
 
-                {/* Upsell / Login Requirement Box */}
-                <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-left space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-black text-indigo-700 dark:text-indigo-300 uppercase">
-                    <Sparkles className="w-4 h-4 text-indigo-500" />
-                    <span>Unlock Full AI Speech Analysis</span>
-                  </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                    To generate your comprehensive AI speech report (Pacing WPM, Filler Word breakdown, Pronunciation & Phonetics, Vocal Variety, and Executive Grammar rewrites), please sign in or register and choose a plan.
-                  </p>
-                </div>
+                {/* Case 1: USER IS PRO -> SHOW REAL SPEECH ANALYSIS OR ANALYZING STATE */}
+                {hasProAccess ? (
+                  isAnalyzing ? (
+                    <div className="py-8 space-y-4 text-center">
+                      <div className="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-600 animate-spin mx-auto shadow-neu-glow" />
+                      <div className="space-y-1">
+                        <h4 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center justify-center gap-2">
+                          <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
+                          <span>Evaluating Your Spoken Speech with Gemini AI...</span>
+                        </h4>
+                        <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto">
+                          Analyzing your spoken words, grammar, fluency, vocabulary, and confidence against the topic.
+                        </p>
+                      </div>
+                    </div>
+                  ) : analysisReport?.overallScore === 0 ? (
+                    /* Zero Speech Detected State */
+                    <div className="space-y-4 text-left">
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-black text-amber-700 dark:text-amber-400 uppercase">
+                          <AlertCircle className="w-4 h-4 text-amber-500" />
+                          <span>No Spoken Speech Detected</span>
+                        </div>
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                          We did not detect any spoken words during this {elapsedSeconds}-second recording.
+                          Please ensure your microphone is enabled in your browser, unmuted, and speak audibly.
+                        </p>
+                      </div>
 
-                {/* Actions */}
-                <div className="space-y-2.5 pt-1">
-                  {!isAuthenticated ? (
-                    <>
-                      <Link to="/register" className="block w-full">
+                      {/* Zero Score Breakdown */}
+                      <div className="p-4 rounded-2xl neu-pressed border border-indigo-500/20 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
+                            Speech Scorecard
+                          </span>
+                          <Badge variant="amber">No Speech Detected</Badge>
+                        </div>
+                        <div className="flex items-baseline justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Overall:</span>
+                          <span className="text-2xl font-black font-mono text-slate-400">0%</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-600 dark:text-slate-400 pt-1">
+                          <div className="flex justify-between"><span>Grammar:</span><span className="font-mono text-slate-400">0%</span></div>
+                          <div className="flex justify-between"><span>Fluency:</span><span className="font-mono text-slate-400">0%</span></div>
+                          <div className="flex justify-between"><span>Vocabulary:</span><span className="font-mono text-slate-400">0%</span></div>
+                          <div className="flex justify-between"><span>Confidence:</span><span className="font-mono text-slate-400">0%</span></div>
+                        </div>
+                      </div>
+
+                      {/* Microphone Help Drill */}
+                      <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs space-y-1">
+                        <span className="font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Recommended Action
+                        </span>
+                        <p className="text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                          Click below to start again. Speak 2-3 full sentences out loud while watching the Live Transcription text box in the recording card to confirm your words appear live.
+                        </p>
+                      </div>
+
+                      <Button
+                        size="md"
+                        variant="primary"
+                        className="w-full rounded-full py-3 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
+                        onClick={() => {
+                          setShowCompletionModal(false);
+                          handleResetPractice();
+                        }}
+                      >
+                        Try Again (Speak into Mic)
+                      </Button>
+                    </div>
+                  ) : analysisReport ? (
+                    /* Real Speech Evaluated by Gemini AI */
+                    <div className="space-y-4 text-left">
+                      <div className="p-4 rounded-2xl neu-pressed border border-indigo-500/20 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                            <span>AI Speech Analysis</span>
+                          </span>
+                          <Badge variant={analysisReport.overallScore >= 80 ? 'emerald' : analysisReport.overallScore >= 70 ? 'indigo' : 'amber'}>
+                            {analysisReport.overallScore >= 85 ? 'Excellent' : analysisReport.overallScore >= 75 ? 'Good' : analysisReport.overallScore >= 60 ? 'Average' : 'Needs Practice'}
+                          </Badge>
+                        </div>
+
+                        {/* Overall % and Rating */}
+                        <div className="flex items-baseline justify-between pt-1 border-b border-slate-200 dark:border-slate-800 pb-2">
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Overall:</span>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">
+                              {analysisReport.overallScore}%
+                            </span>
+                            <span className="text-xs font-bold text-slate-500">
+                              ({analysisReport.overallScore >= 85 ? 'Excellent' : analysisReport.overallScore >= 75 ? 'Good' : analysisReport.overallScore >= 60 ? 'Average' : 'Needs Work'})
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 4 Core Metrics */}
+                        <div className="space-y-2.5 pt-1">
+                          {/* Grammar */}
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
+                              <span>Grammar:</span>
+                              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold">
+                                {analysisReport.scoreBreakdown?.grammar || 0}%
+                              </span>
+                            </div>
+                            <div className="w-full neu-pressed rounded-full h-1.5 overflow-hidden p-0.5 mt-1">
+                              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${analysisReport.scoreBreakdown?.grammar || 0}%` }} />
+                            </div>
+                          </div>
+
+                          {/* Fluency */}
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
+                              <span>Fluency:</span>
+                              <span className="font-mono text-blue-600 dark:text-blue-400 font-extrabold">
+                                {analysisReport.scoreBreakdown?.fluency || 0}%
+                              </span>
+                            </div>
+                            <div className="w-full neu-pressed rounded-full h-1.5 overflow-hidden p-0.5 mt-1">
+                              <div className="h-full rounded-full bg-blue-500" style={{ width: `${analysisReport.scoreBreakdown?.fluency || 0}%` }} />
+                            </div>
+                          </div>
+
+                          {/* Vocabulary */}
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
+                              <span>Vocabulary:</span>
+                              <span className="font-mono text-violet-600 dark:text-violet-400 font-extrabold">
+                                {analysisReport.scoreBreakdown?.vocabulary || 0}%
+                              </span>
+                            </div>
+                            <div className="w-full neu-pressed rounded-full h-1.5 overflow-hidden p-0.5 mt-1">
+                              <div className="h-full rounded-full bg-violet-500" style={{ width: `${analysisReport.scoreBreakdown?.vocabulary || 0}%` }} />
+                            </div>
+                          </div>
+
+                          {/* Confidence */}
+                          <div>
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
+                              <span>Confidence:</span>
+                              <span className="font-mono text-amber-600 dark:text-amber-400 font-extrabold">
+                                {analysisReport.scoreBreakdown?.confidence || 0}%
+                              </span>
+                            </div>
+                            <div className="w-full neu-pressed rounded-full h-1.5 overflow-hidden p-0.5 mt-1">
+                              <div className="h-full rounded-full bg-amber-500" style={{ width: `${analysisReport.scoreBreakdown?.confidence || 0}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Area for Improvement */}
+                      {analysisReport.llmAnalysis?.areasForImprovement?.[0] && (
+                        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-1">
+                          <span className="font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Area for Improvement
+                          </span>
+                          <p className="text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                            {analysisReport.llmAnalysis.areasForImprovement[0]}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Suggested Practice Drill */}
+                      {analysisReport.llmAnalysis?.actionableExercises?.[0] && (
+                        <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs space-y-1">
+                          <span className="font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Suggested Drill: {analysisReport.llmAnalysis.actionableExercises[0].title}
+                          </span>
+                          <p className="text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                            {analysisReport.llmAnalysis.actionableExercises[0].instructions}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Actions for Pro User */}
+                      <div className="space-y-2 pt-2">
+                        <Link to={`/reports/${analysisReport.id}`} className="block w-full">
+                          <Button
+                            size="md"
+                            variant="primary"
+                            className="w-full rounded-full py-3 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
+                            rightIcon={<ArrowRight className="w-4 h-4" />}
+                          >
+                            Open Detailed Report Page
+                          </Button>
+                        </Link>
+                        <button
+                          onClick={() => {
+                            setShowCompletionModal(false);
+                            handleResetPractice();
+                          }}
+                          className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold underline block mx-auto py-1"
+                        >
+                          Practice another topic on Homepage
+                        </button>
+                      </div>
+                    </div>
+                  ) : null
+                ) : (
+                  /* Case 2: USER IS NOT PRO -> TELL TO MAKE PRO */
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-left space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-black text-indigo-700 dark:text-indigo-300 uppercase">
+                        <Crown className="w-4 h-4 text-amber-500" />
+                        <span>Make Pro to Unlock Speech Analysis</span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                        Upgrade to Pro to view your instant AI speech scorecard (Overall %, Grammar %, Fluency %, Vocabulary %, Confidence %), plus detailed areas for improvement and actionable practice drills!
+                      </p>
+                    </div>
+
+                    <div className="space-y-2.5 pt-1">
+                      {!isAuthenticated ? (
+                        <>
+                          <Link to="/register" className="block w-full">
+                            <Button
+                              size="lg"
+                              variant="primary"
+                              className="w-full rounded-full py-3.5 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
+                              leftIcon={<UserPlus className="w-4 h-4" />}
+                            >
+                              Sign Up Free (Unlock Pro Pass)
+                            </Button>
+                          </Link>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <Link to="/login" className="w-full">
+                              <Button
+                                variant="outline"
+                                className="w-full rounded-full text-xs font-bold py-2.5 justify-center"
+                                leftIcon={<LogIn className="w-4 h-4 text-indigo-500" />}
+                              >
+                                Log In
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setShowCompletionModal(false);
+                                openSubscriptionModal();
+                              }}
+                              className="w-full rounded-full text-xs font-bold py-2.5 justify-center"
+                              leftIcon={<Crown className="w-4 h-4 text-amber-500" />}
+                            >
+                              View Plans
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
                         <Button
                           size="lg"
                           variant="primary"
-                          className="w-full rounded-full py-3.5 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
-                          leftIcon={<UserPlus className="w-4 h-4" />}
-                        >
-                          Sign Up Free (Unlock AI Reports)
-                        </Button>
-                      </Link>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <Link to="/login" className="w-full">
-                          <Button
-                            variant="outline"
-                            className="w-full rounded-full text-xs font-bold py-2.5 justify-center"
-                            leftIcon={<LogIn className="w-4 h-4 text-indigo-500" />}
-                          >
-                            Log In
-                          </Button>
-                        </Link>
-                        <Button
-                          variant="outline"
                           onClick={() => {
                             setShowCompletionModal(false);
                             openSubscriptionModal();
                           }}
-                          className="w-full rounded-full text-xs font-bold py-2.5 justify-center"
-                          leftIcon={<Crown className="w-4 h-4 text-amber-500" />}
+                          className="w-full rounded-full py-3.5 text-xs font-extrabold justify-center"
+                          leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
                         >
-                          View Plans
+                          Make Pro (Starting ₹9 Flash Pass)
                         </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <Button
-                      size="lg"
-                      variant="primary"
-                      onClick={() => {
-                        setShowCompletionModal(false);
-                        openSubscriptionModal();
-                      }}
-                      className="w-full rounded-full py-3.5 text-xs font-extrabold justify-center"
-                      leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
-                    >
-                      Unlock Pro Pass (Starting ₹9)
-                    </Button>
-                  )}
+                      )}
 
-
-
-                  <button
-                    onClick={() => {
-                      setShowCompletionModal(false);
-                      handleResetPractice();
-                    }}
-                    className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold underline pt-2 block mx-auto"
-                  >
-                    Practice another topic on Homepage
-                  </button>
-                </div>
+                      <button
+                        onClick={() => {
+                          setShowCompletionModal(false);
+                          handleResetPractice();
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold underline pt-2 block mx-auto"
+                      >
+                        Practice another topic on Homepage
+                      </button>
+                    </div>
+                  </div>
+                )}
               </Card>
             </motion.div>
           </div>
@@ -612,4 +986,3 @@ export const LandingPage: React.FC = () => {
     </div>
   );
 };
-

@@ -2,11 +2,6 @@ import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useReportStore } from '../stores/useReportStore';
 import {
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
   ResponsiveContainer,
   LineChart,
   Line,
@@ -53,14 +48,7 @@ export const ReportDetailPage: React.FC = () => {
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
 
-  // Dynamic Radar Chart Data
-  const radarData = [
-    { metric: 'Pacing', score: report.scoreBreakdown?.pacingScore || 85 },
-    { metric: 'Clarity', score: report.scoreBreakdown?.clarityScore || 88 },
-    { metric: 'Pitch Variety', score: report.scoreBreakdown?.pitchVarietyScore || 82 },
-    { metric: 'Filler Control', score: report.scoreBreakdown?.fillerScore || 90 },
-    { metric: 'Persuasiveness', score: report.scoreBreakdown?.persuasivenessScore || 87 },
-  ];
+
 
   // Time Series Data for Acoustics Graph
   const timeSeriesData = [
@@ -172,22 +160,95 @@ export const ReportDetailPage: React.FC = () => {
           </div>
         </Card>
 
-        {/* Right Col: Radar Chart */}
-        <Card className="flex flex-col justify-between neu-flat">
+        {/* Right Col: Clean Scorecard Breakdown (Overall, Grammar, Fluency, Vocabulary, Confidence) */}
+        <Card className="flex flex-col justify-between neu-flat p-6 space-y-5">
           <div>
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white mb-1">5-Dimension Radar Breakdown</h3>
-            <p className="text-xs text-slate-500 font-medium">Core evaluation parameters</p>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Performance Scorecard</h3>
+              <Badge variant={report.overallScore >= 80 ? 'emerald' : report.overallScore >= 70 ? 'indigo' : 'amber'}>
+                {report.overallScore >= 85 ? 'Excellent' : report.overallScore >= 75 ? 'Good' : report.overallScore >= 60 ? 'Average' : 'Needs Practice'}
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">Core linguistic & acoustic metrics</p>
           </div>
 
-          <div className="h-64 w-full my-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                <PolarGrid stroke="#475569" />
-                <PolarAngleAxis dataKey="metric" stroke="#94a3b8" tick={{ fontSize: 11 }} />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="#475569" />
-                <Radar name="Score" dataKey="score" stroke="#6366f1" fill="#6366f1" fillOpacity={0.4} />
-              </RadarChart>
-            </ResponsiveContainer>
+          <div className="space-y-4">
+            {/* Overall */}
+            <div className="p-3.5 rounded-2xl neu-pressed flex items-center justify-between border border-indigo-500/20">
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-sm shadow-indigo-500/50" />
+                <span className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">Overall</span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-xl font-black font-mono text-indigo-600 dark:text-indigo-400">{report.overallScore}%</span>
+                <span className="text-[11px] font-bold text-slate-500 font-sans">
+                  ({report.overallScore >= 85 ? 'Excellent' : report.overallScore >= 75 ? 'Good' : report.overallScore >= 60 ? 'Average' : 'Needs Work'})
+                </span>
+              </div>
+            </div>
+
+            {/* Metric Bars */}
+            <div className="space-y-3 pt-1">
+              {/* Grammar */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>Grammar:</span>
+                  </span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold">{grammarScore}%</span>
+                </div>
+                <div className="w-full neu-pressed rounded-full h-2 overflow-hidden p-0.5">
+                  <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${grammarScore}%` }} />
+                </div>
+              </div>
+
+              {/* Fluency */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span>Fluency:</span>
+                  </span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400 font-extrabold">{fluencyScore}%</span>
+                </div>
+                <div className="w-full neu-pressed rounded-full h-2 overflow-hidden p-0.5">
+                  <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${fluencyScore}%` }} />
+                </div>
+              </div>
+
+              {/* Vocabulary */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-violet-500" />
+                    <span>Vocabulary:</span>
+                  </span>
+                  <span className="font-mono text-violet-600 dark:text-violet-400 font-extrabold">{vocabularyScore}%</span>
+                </div>
+                <div className="w-full neu-pressed rounded-full h-2 overflow-hidden p-0.5">
+                  <div className="h-full rounded-full bg-violet-500 transition-all duration-500" style={{ width: `${vocabularyScore}%` }} />
+                </div>
+              </div>
+
+              {/* Confidence */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span>Confidence:</span>
+                  </span>
+                  <span className="font-mono text-amber-600 dark:text-amber-400 font-extrabold">{confidenceScore}%</span>
+                </div>
+                <div className="w-full neu-pressed rounded-full h-2 overflow-hidden p-0.5">
+                  <div className="h-full rounded-full bg-amber-500 transition-all duration-500" style={{ width: `${confidenceScore}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-white/10 text-[11px] text-slate-500 font-medium">
+            Evaluated by SpeakWise Neural Speech Analyzer
           </div>
         </Card>
       </div>

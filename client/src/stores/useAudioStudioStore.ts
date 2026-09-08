@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { PracticeMode, Topic, SpeechReport } from '../types';
-import { DynamicAnalysisEngine } from '../services/analysisEngine';
+import { SpeechEvaluatorService } from '../services/speechEvaluator.service';
 import { useReportStore } from './useReportStore';
 
 export type RecordingStatus = 'IDLE' | 'CALIBRATING' | 'RECORDING' | 'PAUSED' | 'PROCESSING' | 'COMPLETED';
@@ -91,21 +91,24 @@ Notice how maintaining an optimal pace between 130 and 150 words per minute allo
 
   stopRecording: async () => {
     set({ status: 'PROCESSING' });
-    
-    // Simulate speech processing delay (1.2 seconds)
-    await new Promise((res) => setTimeout(res, 1200));
 
     const state = get();
-    // Generate dynamic speech report using dynamic engine
-    const report = DynamicAnalysisEngine.generateReport({
-      sessionId: 'sess_' + Math.floor(Math.random() * 8999 + 1000),
-      sessionTitle: state.activeTopic ? state.activeTopic.title : 'Free Speech Rehearsal',
-      durationSeconds: Math.max(1, state.durationSeconds),
-      currentWpm: state.currentWpm,
-      fillerCount: state.fillerCount,
-      transcriptChunks: state.liveTranscript,
-      webcamEnabled: true,
+    const fullTranscript = state.liveTranscript.map((c) => c.text).join(' ').trim();
+    const duration = Math.max(1, state.durationSeconds);
+
+    const evalResult = await SpeechEvaluatorService.evaluateSpeech({
+      topicTitle: state.activeTopic ? state.activeTopic.title : 'Free Speech Rehearsal',
+      topicCategory: state.activeTopic?.category || 'General',
+      transcript: fullTranscript,
+      durationSeconds: duration,
     });
+
+    const report = SpeechEvaluatorService.createSpeechReport(
+      evalResult,
+      state.activeTopic ? state.activeTopic.title : 'Free Speech Rehearsal',
+      fullTranscript,
+      duration
+    );
 
     // Save report into useReportStore
     useReportStore.getState().saveReport(report);

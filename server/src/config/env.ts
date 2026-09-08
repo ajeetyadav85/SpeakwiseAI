@@ -25,4 +25,8 @@ export const env = {
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || 'speakwise-cloud',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '1234567890',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || 'secretkey',
+  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TVdCGH3uhXsGUX',
+  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '50AV2mMLnKBmY57IzkettUmN',
+  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || '50AV2mMLnKBmY57IzkettUmN',
 };
+

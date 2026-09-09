@@ -207,7 +207,7 @@ export class AutoFillContentService {
     }
 
     logger.info(`⚡ [AI Engine] Using Algorithmic Batch Generator fallback...`);
-    return this.generateAlgorithmicBatch(type, category, difficulty, batchSize);
+    return this.generateAlgorithmicBatch(type, category, difficulty, batchSize, existingTitles);
   }
 
   private static async generateBatchWithGroq(
@@ -395,45 +395,158 @@ Format strictly as JSON array with fields: type, category, difficulty, title, me
     return [];
   }
 
+  private static readonly VOCABULARY_WORDS = [
+    'Perspicacity', 'Equanimity', 'Serendipity', 'Magnanimous', 'Alacrity', 'Ubiquitous',
+    'Ineffable', 'Obfuscate', 'Pernicious', 'Ephemeral', 'Verisimilitude', 'Vicarious',
+    'Fastidious', 'Tenacious', 'Eloquence', 'Resilience', 'Perseverance', 'Pragmatism',
+    'Sagacity', 'Mellifluous', 'Altruism', 'Assiduous', 'Capitulate', 'Circumspect',
+    'Clandestine', 'Cogent', 'Complaisant', 'Concomitant', 'Conflagration', 'Connoisseur',
+    'Convivial', 'Corpulence', 'Deference', 'Demagogue', 'Despot', 'Diaphanous',
+    'Diffident', 'Discomfit', 'Disparate', 'Dissemble', 'Duplicity', 'Ebony',
+    'Ebullient', 'Eclectic', 'Efficacious', 'Effrontery', 'Egregious', 'Enervate',
+    'Engender', 'Ennui', 'Equivocal', 'Evanescent', 'Exculpate', 'Exigent',
+    'Expiate', 'Expunge', 'Extant', 'Extol', 'Fallacious', 'Fatuous',
+    'Fervent', 'Florid', 'Fractious', 'Garrulous', 'Grandiloquent', 'Gregarious',
+    'Hackneyed', 'Hapless', 'Harangue', 'Hegemony', 'Heterogeneous', 'Iconoclast',
+    'Idiosyncratic', 'Ignominious', 'Impassive', 'Imperious', 'Impertinent', 'Impervious',
+    'Impetuous', 'Impinge', 'Implacable', 'Impudent', 'Inchoate', 'Incontrovertible',
+    'Indefatigable', 'Indolent', 'Ineluctable', 'Inert', 'Ingenuous', 'Inimical',
+    'Iniquity', 'Insidious', 'Intransigent', 'Inure', 'Invective', 'Inveterate',
+    'Jubilant', 'Juxtaposition', 'Laconic', 'Languid', 'Largesse', 'Latent',
+    'Legerdemain', 'Licentious', 'Limpid', 'Litigant', 'Lucid', 'Luminescence',
+    'Machination', 'Maelstrom', 'Malevolent', 'Malleable', 'Maverick', 'Mendacious',
+    'Mercurial', 'Modicum', 'Morass', 'Munificent', 'Myriad', 'Nadir',
+    'Nascent', 'Nebulous', 'Nefarious', 'Neophyte', 'Nexus', 'Nocturnal',
+    'Nonchalant', 'Noxious', 'Nuance', 'Obdurate', 'Obsequious', 'Obstreperous',
+    'Officious', 'Onerous', 'Opulent', 'Ostensible', 'Ostentatious', 'Palliate',
+    'Pallid', 'Panacea', 'Paradigm', 'Paragon', 'Pariah', 'Parsimony',
+    'Pathos', 'Paucity', 'Pejorative', 'Pellucid', 'Penchant', 'Penurious',
+    'Perfidious', 'Perfunctory', 'Petulance', 'Placate', 'Platitude', 'Plethora',
+    'Poignant', 'Polemic', 'Portentous', 'Precocious', 'Predilection', 'Prescience',
+    'Proclivity', 'Prodigal', 'Profligate', 'Profuse', 'Promulgate', 'Propensity',
+    'Propitious', 'Prurient', 'Puerile', 'Pugnacious', 'Pulchritude', 'Punctilious',
+    'Quagmire', 'Querulous', 'Quixotic', 'Rancor', 'Rebuke', 'Recalcitrant',
+    'Redoubtable', 'Relegate', 'Remiss', 'Replete', 'Reprobate', 'Repudiate',
+    'Rescind', 'Restitution', 'Reticent', 'Revere', 'Ribald', 'Rife',
+    'Ruse', 'Sacrosanct', 'Salient', 'Sanctimonious', 'Sanguine', 'Scurrilous',
+    'Sedulous', 'Seminal', 'Sobriety', 'Solipsism', 'Spurious', 'Staid',
+    'Stoic', 'Stratagem', 'Strident', 'Stupefy', 'Surfeit', 'Surreptitious',
+    'Sycophant', 'Tacit', 'Taciturn', 'Tantamount', 'Temerity', 'Tenuous',
+    'Timorous', 'Torpid', 'Tractable', 'Transient', 'Transmute', 'Tremulous',
+    'Trenchant', 'Trite', 'Truncate', 'Turgid', 'Turpitude', 'Umbrage',
+    'Unctuous', 'Undulate', 'Upbraid', 'Usurp', 'Vacillate', 'Variegated',
+    'Venerable', 'Veracity', 'Verbose', 'Verdant', 'Vestige', 'Vex',
+    'Vicissitude', 'Vilify', 'Vindicate', 'Virulent', 'Viscous', 'Vitiate',
+    'Vituperate', 'Vivacious', 'Voluble', 'Voracious', 'Wane', 'Wanton',
+    'Whimsical', 'Wily', 'Winsome', 'Wistful', 'Zealot', 'Zenith', 'Zephyr'
+  ];
+
+  private static readonly PHRASES_AND_IDIOMS = [
+    'Bite the bullet', 'Burn the midnight oil', 'Hit the nail on the head',
+    'Steal someone’s thunder', 'Break the ice', 'Add fuel to the fire',
+    'Ball is in your court', 'Barking up the wrong tree', 'Blessing in disguise',
+    'Call it a day', 'Cut corners', 'Cutting-edge', 'Devil’s advocate',
+    'Elephant in the room', 'Fit as a fiddle', 'Getting a second wind',
+    'Give someone the benefit of the doubt', 'Go back to the drawing board',
+    'Good things come to those who wait', 'Hear through the grapevine',
+    'Hit the sack', 'In the heat of the moment', 'Keep something at bay',
+    'Kill two birds with one stone', 'Last straw', 'Let sleeping dogs lie',
+    'Let the cat out of the bag', 'Make a long story short', 'Method to the madness',
+    'Miss the boat', 'No pain no gain', 'Off the hook', 'On the fence',
+    'Piece of cake', 'Pull someone’s leg', 'Pull yourself together',
+    'Rain on someone’s parade', 'See eye to eye', 'Spill the beans',
+    'Take with a grain of salt', 'Taste of your own medicine',
+    'The best of both worlds', 'Through thick and thin', 'Time flies when you’re having fun',
+    'To cut a long story short', 'Under the weather', 'Up in the air',
+    'Wrap your head around something', 'You can say that again',
+    'Your guess is as good as mine', 'A bird in the hand', 'Back to square one'
+  ];
+
+  private static readonly TOPIC_ANGLES = [
+    'The Unintended Consequences of Rapid Digital Transformation',
+    'Navigating Ethical Dilemmas in Emerging Technology',
+    'Rethinking Traditional Leadership Frameworks in Remote Work',
+    'How Modern Organizations Adapt to Economic Uncertainty',
+    'The Psychological Foundation Behind High-Performing Teams',
+    'Balancing Innovation Velocity with Enterprise Security',
+    'The Future of Sustainable Urban Infrastructure',
+    'Democratizing AI Access while Protecting Data Privacy',
+    'Cross-Cultural Communication in Global Corporate Environments',
+    'Building Anti-Fragile Systems in Times of Crisis',
+    'The Power of Active Listening in Executive Negotiations',
+    'Fostering Psychological Safety in Fast-Paced Engineering Teams',
+    'Strategic Storytelling as a Competitive Advantage for Founders',
+    'Managing Burnout and Cognitive Overload in the Modern Workplace',
+    'The Transition from Individual Contributor to Strategic Leader'
+  ];
+
+  private static readonly INTERVIEW_QUESTIONS = [
+    'Describe a situation where you had to lead a project through significant ambiguity.',
+    'How do you handle conflicting priorities between short-term targets and long-term vision?',
+    'Tell me about a time you persuaded executive stakeholders to change an entrenched strategy.',
+    'Describe how you managed a critical outage or crisis under intense deadline pressure.',
+    'How do you foster diversity of thought and constructive dissent within your teams?',
+    'Tell me about a mistake you made early in your career and what you fundamentally learned from it.',
+    'How do you align technical engineering decisions with high-level business goals?',
+    'Describe your philosophy for giving difficult feedback to a high-performing colleague.'
+  ];
+
+  private static readonly CORPORATE_TALKS = [
+    'Executive Townhall: Navigating Industry Headwinds with Strategic Resilience',
+    'Keynote Address: Scaling Enterprise Agility Across Global Geographies',
+    'All-Hands Briefing: Aligning Product Velocity with Customer Obsession',
+    'Leadership Summit: Transforming Organizational Culture Through Radical Candor',
+    'Strategic Pitch: Unlocking Long-Term Shareholder Value Through AI Automation',
+    'Crisis Management Briefing: Restoring Stakeholder Trust Following Operational Disruption'
+  ];
+
   private static generateAlgorithmicBatch(
     type: ContentType,
     category: string,
     difficulty: DifficultyLevel,
-    batchSize: number
+    batchSize: number,
+    existingTitles: string[] = []
   ): any[] {
-    const pickRandom = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
-    const results = [];
+    const existingSet = new Set((existingTitles || []).map((t) => (t || '').toLowerCase().trim()));
+    const normCat = (category || '').toLowerCase();
+    const results: any[] = [];
 
-    for (let i = 0; i < batchSize; i++) {
-      const dynamicSeed = Math.floor(Math.random() * 89999) + 10000;
-      let title = '';
+    // Select candidate pool based on type and category
+    let pool: string[] = [];
 
-      if (type === 'WORD') {
-        const normCat = category.toLowerCase();
-        if (normCat.includes('phrase') || normCat.includes('idiom')) {
-          const phrases = ['Bite the bullet', 'Burn the midnight oil', 'Hit the nail on the head', 'Steal someone’s thunder', 'Break the ice', 'Add fuel to the fire', 'Ball is in your court', 'Barking up the wrong tree'];
-          title = `${pickRandom(phrases)} #${dynamicSeed}`;
-        } else {
-          const words = ['Perspicacity', 'Equanimity', 'Serendipity', 'Magnanimous', 'Alacrity', 'Ubiquitous', 'Ineffable', 'Obfuscate', 'Pernicious', 'Ephemeral', 'Verisimilitude', 'Vicarious', 'Fastidious', 'Tenacious', 'Eloquence'];
-          title = `${pickRandom(words)}_${dynamicSeed}`;
-        }
-      } else if (type === 'QUESTION') {
-        title = `How do you handle strategic challenge #${dynamicSeed} in ${category}?`;
-      } else if (type === 'CORPORATE_TALK') {
-        title = `Corporate Strategy Keynote #${dynamicSeed}: Scaling ${category} Leadership`;
+    if (type === 'WORD') {
+      if (normCat.includes('phrase') || normCat.includes('idiom')) {
+        pool = this.PHRASES_AND_IDIOMS;
       } else {
-        title = `The Unintended Consequences of ${category} Evolution #${dynamicSeed}`;
+        pool = this.VOCABULARY_WORDS;
       }
+    } else if (type === 'QUESTION') {
+      pool = this.INTERVIEW_QUESTIONS;
+    } else if (type === 'CORPORATE_TALK') {
+      pool = this.CORPORATE_TALKS;
+    } else {
+      pool = this.TOPIC_ANGLES;
+    }
+
+    // Filter candidate pool to exclude any titles already existing in DB or batch
+    const available = pool.filter((title) => !existingSet.has(title.toLowerCase().trim()));
+
+    // Shuffle available items
+    const shuffled = [...available].sort(() => 0.5 - Math.random());
+
+    for (let i = 0; i < Math.min(batchSize, shuffled.length); i++) {
+      const cleanTitle = shuffled[i].trim();
+      existingSet.add(cleanTitle.toLowerCase());
 
       results.push({
         type,
         category,
         difficulty,
-        title,
-        meaning: `Analyzing strategic implications of ${category.toLowerCase()} in leadership.`,
-        contentOverview: `Structured narrative overview analyzing ${category.toLowerCase()} paradigms.`,
+        title: cleanTitle, // Clean title with ZERO numbers or suffix codes
+        meaning: `Analyzing strategic implications and linguistic depth of "${cleanTitle}".`,
+        contentOverview: `Structured narrative overview analyzing communication concepts surrounding "${cleanTitle}".`,
         hint: 'Structure your speech into 3 pillars: 1. Context, 2. Challenge, 3. Actionable Conclusion.',
-        suggestedDurationSeconds: 150,
+        suggestedDurationSeconds: type === 'WORD' ? 90 : 150,
       });
     }
 

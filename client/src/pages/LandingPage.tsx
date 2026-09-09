@@ -37,6 +37,16 @@ import {
   PenTool,
   Check,
   BookOpen,
+  TrendingUp,
+  BarChart3,
+  Share2,
+  Download,
+  Activity,
+  Flame,
+  Layers,
+  Award,
+  FileText,
+  AudioWaveform,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -87,6 +97,9 @@ export const LandingPage: React.FC = () => {
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
 
+  // Reference to scroll to practice card if needed
+  const practiceCardRef = useRef<HTMLDivElement>(null);
+
   // Determine current active goal and prompt list
   const activeGoal = GOAL_CATEGORIES.find((g) => g.id === selectedGoalId) || GOAL_CATEGORIES[0];
   const activePromptsList: GoalTopicItem[] =
@@ -122,6 +135,9 @@ export const LandingPage: React.FC = () => {
     setSelectedGoalId('custom');
     setCurrentPromptIndex(0);
     setCustomInput('');
+
+    // Smooth scroll down to practice card
+    practiceCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
   const handleSelectCustomItem = (item: GoalTopicItem) => {
@@ -313,354 +329,552 @@ export const LandingPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-200 relative overflow-hidden flex flex-col justify-between p-4 sm:p-6">
-      {/* Background Soft Glow */}
-      <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[850px] h-[400px] bg-gradient-to-tr from-indigo-500/10 via-violet-500/10 to-cyan-500/10 blur-[140px] pointer-events-none rounded-full" />
+    <div className="min-h-[calc(100vh-4rem)] bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-200 relative overflow-hidden flex flex-col justify-between p-4 sm:p-6 lg:p-8">
+      {/* Ambient Background Soft Glows */}
+      <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-tr from-indigo-500/10 via-violet-500/10 to-cyan-500/10 blur-[150px] pointer-events-none rounded-full" />
+      <div className="absolute top-[800px] right-0 w-[500px] h-[500px] bg-indigo-500/5 blur-[160px] pointer-events-none rounded-full" />
 
-      {/* Main Single-Screen Hero Section */}
-      <div className="max-w-7xl mx-auto w-full my-auto py-4 relative z-10 space-y-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-          {/* Left Column: Value Proposition */}
-          <div className="lg:col-span-6 space-y-6 text-left">
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full neu-pressed text-indigo-700 dark:text-indigo-400 text-xs font-extrabold"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Goal-Oriented AI Speech Coaching</span>
-            </motion.div>
-
-            <motion.h1
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="text-4xl sm:text-6xl font-black text-slate-900 dark:text-white tracking-tight leading-[1.15]"
-            >
-              Master English for Your Career Goals
-            </motion.h1>
-
-            <motion.p
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="text-base text-slate-600 dark:text-slate-400 font-medium leading-relaxed max-w-lg"
-            >
-              Select what you want to improve below or write your own topic/word. Speak live with real-time text transcription, spin for new prompts, and receive instant AI analysis! 🎙️
-            </motion.p>
-
-            {/* Feature Badges */}
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="flex flex-wrap items-center gap-3 pt-2"
-            >
-              <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-button text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>🎯 Goal-Oriented Prompts</span>
+      {/* ========================================================================= */}
+      {/* SCREEN 1: WHAT DO YOU WANT TO IMPROVE? (LEFT) & START SPEAKING (RIGHT)    */}
+      {/* ========================================================================= */}
+      <div className="max-w-7xl mx-auto w-full my-auto pt-2 pb-6 relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+          {/* LEFT SIDE: "What do you want to improve?" + 3 boxes per row + custom input */}
+          <div className="lg:col-span-6 xl:col-span-6 space-y-4 text-left">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full neu-pressed text-indigo-700 dark:text-indigo-400 text-xs font-extrabold">
+                <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Goal-Oriented AI Practice</span>
               </div>
-              <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-button text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>📝 Live Transcription in Text</span>
-              </div>
-              <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-button text-xs font-bold text-slate-700 dark:text-slate-300">
-                <span>⚡ Instant Simplified Analysis</span>
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Right Column: In-Page Speaking Card */}
-          <div className="lg:col-span-6">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.25 }}
-            >
-              <Card className="p-6 sm:p-8 rounded-3xl neu-flat text-center relative overflow-hidden flex flex-col justify-between min-h-[440px]">
-                {/* State A: Idle Selection Mode */}
-                {!isPracticing ? (
-                  <div className="flex flex-col justify-between h-full space-y-6">
-                    {/* Header: Category & Spin Button */}
-                    <div className="flex items-center justify-between text-xs font-semibold border-b border-white/20 dark:border-white/5 pb-3">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="indigo">
-                          {activePrompt.categoryEmoji} {activePrompt.category}
-                        </Badge>
-                        <Badge variant={activePrompt.type === 'WORD' ? 'amber' : 'violet'}>
-                          {activePrompt.type === 'WORD' ? 'Vocabulary Word' : 'Topic'}
-                        </Badge>
-                        <span className="text-[11px] font-bold text-slate-500 font-mono hidden sm:inline">
-                          #{safePromptIndex + 1}/{activePromptsList.length}
-                        </span>
-                      </div>
-                      <button
-                        onClick={handleNextPrompt}
-                        className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline"
-                        title="Spin to the next prompt in this category"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Spin Next Topic</span>
-                      </button>
-                    </div>
-
-                    {/* Active Prompt Text */}
-                    <div className="py-2 my-auto text-left">
-                      {activePrompt.word ? (
-                        <div className="space-y-2">
-                          <span className="text-xs uppercase font-extrabold tracking-widest text-indigo-500">
-                            Practice Word:
-                          </span>
-                          <h3 className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-wide font-mono">
-                            "{activePrompt.word}"
-                          </h3>
-                          <p className="text-sm text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
-                            {activePrompt.prompt}
-                          </p>
-                        </div>
-                      ) : (
-                        <h3 className="text-xl sm:text-2xl font-serif italic text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
-                          "{activePrompt.prompt}"
-                        </h3>
-                      )}
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 font-medium bg-slate-100 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
-                        💡 <strong className="text-slate-800 dark:text-slate-200">Coach Hint:</strong> {activePrompt.hint}
-                      </p>
-                    </div>
-
-                    {/* Duration Selector & Start Button */}
-                    <div className="space-y-4 pt-3 border-t border-white/20 dark:border-white/5">
-                      {/* Duration Pills */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                            <span>Select Speaking Duration:</span>
-                          </span>
-                          <span className="font-mono text-indigo-600 dark:text-indigo-400">{selectedDuration}s</span>
-                        </div>
-                        <div className="grid grid-cols-5 gap-1.5 p-1 rounded-2xl neu-pressed">
-                          {DURATION_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.seconds}
-                              onClick={() => {
-                                setSelectedDuration(opt.seconds);
-                                setTimeLeft(opt.seconds);
-                              }}
-                              className={`py-1.5 rounded-xl text-xs font-black transition-all ${
-                                selectedDuration === opt.seconds
-                                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/30'
-                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Big Start Practice Button */}
-                      <Button
-                        size="lg"
-                        variant="primary"
-                        className="rounded-full px-8 py-3.5 text-xs font-extrabold shadow-neu-glow w-full justify-center flex items-center gap-2"
-                        onClick={handleStartInPagePractice}
-                        leftIcon={<Mic className="w-4 h-4 text-emerald-300" />}
-                        rightIcon={<ArrowRight className="w-4 h-4" />}
-                      >
-                        Start {formatSeconds(selectedDuration)} Speaking Practice
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  /* State B: Active In-Page Recording HUD */
-                  <div className="flex flex-col justify-between h-full space-y-4 animate-in fade-in">
-                    {/* Live Recording Header */}
-                    <div className="flex items-center justify-between pb-3 border-b border-white/20 dark:border-white/5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
-                        <span className="text-xs font-black text-rose-600 dark:text-rose-400 tracking-wider">
-                          LIVE SPEAKING SESSION
-                        </span>
-                      </div>
-                      <Badge variant="indigo">
-                        {activePrompt.categoryEmoji} {activePrompt.category}
-                      </Badge>
-                    </div>
-
-                    {/* Active Prompt Reminder */}
-                    <div className="p-3 rounded-2xl neu-pressed text-xs font-serif italic text-slate-800 dark:text-slate-200">
-                      "{activePrompt.word ? `Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt}"
-                    </div>
-
-                    {/* Center Big Countdown Timer & Mic Level */}
-                    <div className="flex flex-col items-center justify-center my-auto space-y-3">
-                      <div className="w-28 h-28 rounded-full neu-button flex flex-col items-center justify-center relative shadow-neu-glow border-4 border-indigo-500/30">
-                        <span className="text-2xl sm:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight">
-                          {formatSeconds(timeLeft)}
-                        </span>
-                        <span className="text-[10px] uppercase font-bold text-indigo-500">Remaining</span>
-                      </div>
-
-                      {/* Live Audio Visualizer Volume Meter */}
-                      <div className="w-full max-w-xs space-y-1">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 font-mono">
-                          <span className="flex items-center gap-1">
-                            <Volume2 className="w-3 h-3 text-emerald-500" />
-                            <span>Mic Input Level</span>
-                          </span>
-                          <span>{micVolume}%</span>
-                        </div>
-                        <div className="w-full neu-pressed rounded-full h-2 overflow-hidden p-0.5">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 transition-all duration-75"
-                            style={{ width: `${Math.max(8, micVolume)}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Prominent Live Speech Transcription in Text */}
-                      <div className="w-full max-w-md p-3.5 rounded-2xl neu-pressed text-left space-y-1.5 border border-indigo-500/20">
-                        <div className="flex items-center justify-between text-[11px] font-bold">
-                          <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                            <span>Live Speech Transcription:</span>
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">Real-Time Text</span>
-                        </div>
-                        <div className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 min-h-[44px] max-h-24 overflow-y-auto leading-relaxed">
-                          {liveTranscript ? (
-                            <span className="animate-in fade-in">{liveTranscript}</span>
-                          ) : (
-                            <span className="text-slate-400 italic">Listening... Start speaking into your mic to see your words live.</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Active Recording Controls */}
-                    <div className="pt-3 border-t border-white/20 dark:border-white/5 flex items-center justify-center gap-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="rounded-full px-4 text-xs font-bold"
-                        onClick={() => setIsPaused(!isPaused)}
-                        leftIcon={isPaused ? <Play className="w-3.5 h-3.5 text-emerald-500" /> : <Pause className="w-3.5 h-3.5 text-amber-500" />}
-                      >
-                        {isPaused ? 'Resume' : 'Pause'}
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        className="rounded-full px-6 text-xs font-extrabold bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/30"
-                        onClick={handleStopInPagePractice}
-                        leftIcon={<Square className="w-3.5 h-3.5 fill-current" />}
-                      >
-                        Stop Session
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="rounded-full text-xs font-bold"
-                        onClick={handleResetPractice}
-                        leftIcon={<RotateCcw className="w-3.5 h-3.5 text-slate-400" />}
-                      >
-                        Reset
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            </motion.div>
-          </div>
-        </div>
-
-        {/* ============================================================ */}
-        {/* GOAL-ORIENTED TOPICS SECTION: What do you want to improve?  */}
-        {/* ============================================================ */}
-        <div className="space-y-6 pt-6 border-t border-slate-200/60 dark:border-slate-800/80">
-          <div className="text-center sm:text-left space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full neu-pressed text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-wider">
-              <Target className="w-3.5 h-3.5" />
-              <span>Goal-Oriented Speaking</span>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+                What do you want to improve?
+              </h1>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-              What do you want to improve?
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
-              Choose your practice goal below to load curated topics and vocabulary words, or write your own custom topic/word.
-            </p>
-          </div>
 
-          {/* 10 Curated Goal Category Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {GOAL_CATEGORIES.map((goal) => {
-              const isSelected = selectedGoalId === goal.id;
-              return (
-                <button
-                  key={goal.id}
-                  onClick={() => handleSelectGoal(goal.id)}
-                  className={`p-3.5 rounded-2xl text-left transition-all flex flex-col justify-between space-y-2 border ${
-                    isSelected
-                      ? 'bg-indigo-600/10 border-indigo-500 shadow-md shadow-indigo-500/10 text-indigo-900 dark:text-white ring-2 ring-indigo-500/30'
-                      : 'neu-button border-transparent hover:border-indigo-500/30 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span className="text-2xl">{goal.emoji}</span>
-                  <div>
-                    <div className="text-xs sm:text-sm font-extrabold line-clamp-1">{goal.name}</div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1 font-medium mt-0.5">
-                      {goal.prompts.length} topics & words
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+            {/* 3 Boxes Each Row on Both Mobile and PC (10 categories + 1 box spanning 2 columns = 12 slots = perfect 3x4 grid) */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+              {GOAL_CATEGORIES.map((goal) => {
+                const isSelected = selectedGoalId === goal.id;
+                return (
+                  <button
+                    key={goal.id}
+                    onClick={() => handleSelectGoal(goal.id)}
+                    className={`p-2.5 sm:p-3 rounded-2xl text-center transition-all flex flex-col items-center justify-center gap-1.5 border group relative ${
+                      isSelected
+                        ? 'bg-indigo-600/10 border-indigo-500 shadow-sm text-indigo-900 dark:text-white ring-2 ring-indigo-500/30'
+                        : 'neu-button border-transparent hover:border-indigo-500/30 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {isSelected && (
+                      <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                    )}
+                    {/* Icon Top Inside Box */}
+                    <span className="text-2xl sm:text-3xl transition-transform group-hover:scale-110">
+                      {goal.emoji}
+                    </span>
+                    {/* Below Only Title */}
+                    <span className="text-[11px] sm:text-xs font-bold leading-tight line-clamp-2 text-center">
+                      {goal.name}
+                    </span>
+                  </button>
+                );
+              })}
 
-          {/* Write your own topic or word */}
-          <div className="p-4 sm:p-5 rounded-3xl neu-flat space-y-3 border border-indigo-500/20">
-            <div className="flex items-center gap-2 text-xs font-black text-slate-900 dark:text-white">
-              <PenTool className="w-4 h-4 text-indigo-500" />
-              <span>Write your own topic or word:</span>
+              {/* WRITE YOUR OWN TOPIC: SPANS TWO BOXES RIGHT AFTER PUBLIC SPEAKING */}
+              <div className="col-span-2 p-2.5 sm:p-3 rounded-2xl neu-flat border border-indigo-500/25 flex flex-col justify-between gap-1.5 group hover:border-indigo-500/40 transition-all">
+                <div className="flex items-center justify-between px-0.5">
+                  <span className="flex items-center gap-1.5 text-[11px] sm:text-xs font-bold text-slate-900 dark:text-white">
+                    <PenTool className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                    <span>Write your own topic:</span>
+                  </span>
+                  <span className="text-[10px] text-indigo-500 font-semibold hidden sm:inline">
+                    Instant AI Practice
+                  </span>
+                </div>
+
+                <form onSubmit={handleAddCustomPrompt} className="flex items-center gap-1.5 w-full">
+                  <input
+                    type="text"
+                    value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    placeholder="Type custom topic or word..."
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl neu-pressed text-[11px] sm:text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    className="rounded-xl px-3 py-1.5 font-bold text-xs whitespace-nowrap shadow-neu-glow flex-shrink-0 h-auto"
+                    disabled={!customInput.trim()}
+                  >
+                    Add
+                  </Button>
+                </form>
+              </div>
             </div>
-            <form onSubmit={handleAddCustomPrompt} className="flex flex-col sm:flex-row gap-2.5">
-              <input
-                type="text"
-                value={customInput}
-                onChange={(e) => setCustomInput(e.target.value)}
-                placeholder="Enter your own topic (e.g. 'Overcoming fear in tech talks') or single word (e.g. 'Resilience')..."
-                className="flex-1 px-4 py-3 rounded-2xl neu-pressed text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                className="rounded-2xl px-6 font-extrabold text-xs whitespace-nowrap shadow-neu-glow"
-                disabled={!customInput.trim()}
-              >
-                Add & Practice
-              </Button>
-            </form>
 
+            {/* Custom Topics Pill list if user has created any */}
             {customItems.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="text-[11px] font-bold text-slate-500">Your Added Topics:</span>
+              <div className="flex flex-wrap items-center gap-1.5 px-1">
+                <span className="text-[10px] font-bold text-slate-400">Your Topics:</span>
                 {customItems.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => handleSelectCustomItem(item)}
-                    className={`px-3 py-1 rounded-xl text-xs font-extrabold transition-all ${
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
                       activePrompt.id === item.id
                         ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'neu-pressed text-slate-700 dark:text-slate-300'
+                        : 'neu-pressed text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    {item.word ? `Word: ${item.word}` : item.prompt.slice(0, 24) + '...'}
+                    {item.word ? item.word : item.prompt.slice(0, 18) + '...'}
                   </button>
                 ))}
               </div>
             )}
+          </div>
+
+          {/* RIGHT SIDE: START SPEAKING PRACTICE CARD */}
+          <div ref={practiceCardRef} className="lg:col-span-6 xl:col-span-6 w-full">
+            <Card className="p-5 sm:p-7 rounded-3xl neu-flat relative overflow-hidden flex flex-col justify-between min-h-[440px] border border-indigo-500/20 shadow-2xl">
+              {/* State A: Idle Selection Mode */}
+              {!isPracticing ? (
+                <div className="flex flex-col justify-between h-full space-y-5">
+                  {/* Header: Category Badge & Spin Next Topic */}
+                  <div className="flex items-center justify-between text-xs font-semibold border-b border-white/20 dark:border-white/5 pb-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="indigo">
+                        {activePrompt.categoryEmoji} {activePrompt.category}
+                      </Badge>
+                      <Badge variant={activePrompt.type === 'WORD' ? 'amber' : 'violet'}>
+                        {activePrompt.type === 'WORD' ? 'Vocabulary Word' : 'Speech Topic'}
+                      </Badge>
+                    </div>
+                    <button
+                      onClick={handleNextPrompt}
+                      className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline"
+                      title="Spin to next prompt in this category"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Spin Next Topic</span>
+                    </button>
+                  </div>
+
+                  {/* Active Prompt Text / Word */}
+                  <div className="py-2 my-auto text-left space-y-2.5">
+                    {activePrompt.word ? (
+                      <div className="space-y-1">
+                        <span className="text-xs uppercase font-extrabold tracking-widest text-indigo-500">
+                          Practice Word of the Day:
+                        </span>
+                        <h3 className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-wide font-mono">
+                          "{activePrompt.word}"
+                        </h3>
+                        <p className="text-sm sm:text-base text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
+                          {activePrompt.prompt}
+                        </p>
+                      </div>
+                    ) : (
+                      <h3 className="text-lg sm:text-2xl font-serif italic text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                        "{activePrompt.prompt}"
+                      </h3>
+                    )}
+
+                    <div className="text-xs text-slate-600 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
+                      💡 <strong className="text-slate-800 dark:text-slate-200">Coach Hint:</strong> {activePrompt.hint}
+                    </div>
+                  </div>
+
+                  {/* Duration Selector & Big CTA */}
+                  <div className="space-y-3.5 pt-3 border-t border-white/20 dark:border-white/5">
+                    {/* Duration Pills */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Select Speaking Duration:</span>
+                        </span>
+                        <span className="font-mono text-indigo-600 dark:text-indigo-400">{selectedDuration}s</span>
+                      </div>
+                      <div className="grid grid-cols-5 gap-1.5 p-1 rounded-2xl neu-pressed">
+                        {DURATION_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.seconds}
+                            onClick={() => {
+                              setSelectedDuration(opt.seconds);
+                              setTimeLeft(opt.seconds);
+                            }}
+                            className={`py-1.5 rounded-xl text-xs font-black transition-all ${
+                              selectedDuration === opt.seconds
+                                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-600/30'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Start Speaking Practice Button */}
+                    <Button
+                      size="lg"
+                      variant="primary"
+                      className="rounded-full px-6 py-3.5 text-xs sm:text-sm font-extrabold shadow-neu-glow w-full justify-center flex items-center gap-2"
+                      onClick={handleStartInPagePractice}
+                      leftIcon={<Mic className="w-4 h-4 text-emerald-300 animate-pulse" />}
+                      rightIcon={<ArrowRight className="w-4 h-4" />}
+                    >
+                      Start {formatSeconds(selectedDuration)} Speaking Practice
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                /* State B: Active In-Page Recording HUD */
+                <div className="flex flex-col justify-between h-full space-y-4 animate-in fade-in">
+                  {/* Live Recording Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-white/20 dark:border-white/5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+                      <span className="text-xs font-black text-rose-600 dark:text-rose-400 tracking-wider">
+                        LIVE SPEAKING SESSION
+                      </span>
+                    </div>
+                    <Badge variant="indigo">
+                      {activePrompt.categoryEmoji} {activePrompt.category}
+                    </Badge>
+                  </div>
+
+                  {/* Active Prompt Reminder */}
+                  <div className="p-3 rounded-2xl neu-pressed text-xs font-serif italic text-slate-800 dark:text-slate-200 text-left">
+                    "{activePrompt.word ? `Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt}"
+                  </div>
+
+                  {/* Center Countdown Timer & Mic Level */}
+                  <div className="flex flex-col items-center justify-center my-auto space-y-2.5">
+                    <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full neu-button flex flex-col items-center justify-center relative shadow-neu-glow border-4 border-indigo-500/30">
+                      <span className="text-2xl sm:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight">
+                        {formatSeconds(timeLeft)}
+                      </span>
+                      <span className="text-[10px] uppercase font-bold text-indigo-500">Remaining</span>
+                    </div>
+
+                    {/* Live Mic Volume Meter */}
+                    <div className="w-full max-w-xs space-y-1">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 font-mono">
+                        <span className="flex items-center gap-1">
+                          <Volume2 className="w-3 h-3 text-emerald-500" />
+                          <span>Mic Input Level</span>
+                        </span>
+                        <span>{micVolume}%</span>
+                      </div>
+                      <div className="w-full neu-pressed rounded-full h-2 overflow-hidden p-0.5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 transition-all duration-75"
+                          style={{ width: `${Math.max(8, micVolume)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Real-time Speech Transcription Box with Word Count */}
+                    <div className="w-full p-3 rounded-2xl neu-pressed text-left space-y-1 border border-indigo-500/20">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                          <span>Live Real-Time Transcription:</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {liveTranscript ? `${liveTranscript.trim().split(/\s+/).filter(Boolean).length} words` : 'Listening...'}
+                        </span>
+                      </div>
+                      <div className="text-xs font-medium text-slate-800 dark:text-slate-200 min-h-[44px] max-h-20 overflow-y-auto leading-relaxed">
+                        {liveTranscript ? (
+                          <span className="animate-in fade-in">{liveTranscript}</span>
+                        ) : (
+                          <span className="text-slate-400 italic">Start speaking into your mic to see your words transcribed live in real time...</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Recording Controls */}
+                  <div className="pt-3 border-t border-white/20 dark:border-white/5 flex items-center justify-center gap-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full px-4 text-xs font-bold"
+                      onClick={() => setIsPaused(!isPaused)}
+                      leftIcon={isPaused ? <Play className="w-3.5 h-3.5 text-emerald-500" /> : <Pause className="w-3.5 h-3.5 text-amber-500" />}
+                    >
+                      {isPaused ? 'Resume' : 'Pause'}
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      className="rounded-full px-6 text-xs font-extrabold bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/30"
+                      onClick={handleStopInPagePractice}
+                      leftIcon={<Square className="w-3.5 h-3.5 fill-current" />}
+                    >
+                      Stop Session
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="rounded-full text-xs font-bold"
+                      onClick={handleResetPractice}
+                      leftIcon={<RotateCcw className="w-3.5 h-3.5 text-slate-400" />}
+                    >
+                      Reset
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SCREEN 2 (SCROLL DOWN): MASTER ENGLISH FOR YOUR CAREER GOALS & FEATURES   */}
+      {/* ========================================================================= */}
+      <div className="max-w-7xl mx-auto w-full py-16 relative z-10 space-y-16 border-t border-slate-200/60 dark:border-slate-800/80 mt-12">
+        {/* Section Heading */}
+        <div className="text-center space-y-4 max-w-3xl mx-auto">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full neu-pressed text-indigo-700 dark:text-indigo-400 text-xs font-extrabold">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>All-In-One AI Communication Intelligence</span>
+          </div>
+
+          <h2 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
+            Master English for Your Career Goals
+          </h2>
+
+          <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+            SpeakWise AI analyzes your voice through acoustic neural signals and linguistic models. Explore the features that help professionals, job seekers, and students speak with clarity and executive confidence.
+          </p>
+        </div>
+
+        {/* Feature Showcase Grid with Realistic UI Screenshots & Previews */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+          {/* Feature 1: AI Executive Re-writer & Drills */}
+          <Card className="p-6 rounded-3xl neu-flat space-y-4 flex flex-col justify-between border border-indigo-500/15 group hover:border-indigo-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-violet-500 flex items-center justify-center">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                AI Executive Re-Writer & Drills
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                Transforms conversational filler phrases into authoritative, executive-ready pitch statements with clear reasoning.
+              </p>
+            </div>
+
+            {/* Visual UI Preview Mockup */}
+            <div className="p-3.5 rounded-2xl neu-pressed space-y-2 text-left border border-indigo-500/10 text-xs">
+              <div className="line-through text-rose-500 font-mono text-[11px] opacity-80">
+                "Um, I think maybe our tool can help users..."
+              </div>
+              <div className="text-emerald-600 dark:text-emerald-400 font-bold flex items-start gap-1.5 text-xs">
+                <ArrowRight className="w-3.5 h-3.5 text-emerald-500 mt-0.5 flex-shrink-0" />
+                <span>"Our platform drives measurable workflow efficiency for engineering teams."</span>
+              </div>
+              <div className="text-[10px] text-slate-500 bg-slate-200/60 dark:bg-slate-900/80 p-2 rounded-xl">
+                💡 <strong>Coaching Rationale:</strong> Eliminates hedging words and projects ownership.
+              </div>
+            </div>
+          </Card>
+
+          {/* Feature 2: AI Pronunciation & Phonetics */}
+          <Card className="p-6 rounded-3xl neu-flat space-y-4 flex flex-col justify-between border border-indigo-500/15 group hover:border-indigo-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-cyan-500 flex items-center justify-center">
+                <AudioWaveform className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                AI Pronunciation & Phonetics
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                Detects phonetic vowel elongation, syllable stress patterns, and accent clarity with international IPA phonetic benchmarks.
+              </p>
+            </div>
+
+            {/* Visual UI Preview Mockup */}
+            <div className="p-3.5 rounded-2xl neu-pressed space-y-2.5 text-left border border-cyan-500/10 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">Methodology</span>
+                <Badge variant="emerald">94% Accuracy</Badge>
+              </div>
+              <div className="text-[11px] font-mono text-indigo-500">
+                IPA: /ˌmeθ.əˈdɒl.ə.dʒi/
+              </div>
+              <div className="flex gap-1 text-[11px] font-bold">
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600">ME</span>
+                <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500">thuh</span>
+                <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-600">DOL</span>
+                <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500">uh-jee</span>
+              </div>
+              <p className="text-[10px] text-slate-500">Target primary stress on the 3rd syllable.</p>
+            </div>
+          </Card>
+
+          {/* Feature 3: Detailed Metric Breakdown Scorecard */}
+          <Card className="p-6 rounded-3xl neu-flat space-y-4 flex flex-col justify-between border border-indigo-500/15 group hover:border-indigo-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-indigo-500 flex items-center justify-center">
+                <BarChart3 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Detailed Metric Breakdown
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                Simplified, high-impact scorecard evaluating your Overall %, Grammar %, Fluency %, Vocabulary %, and Confidence %.
+              </p>
+            </div>
+
+            {/* Visual UI Preview Mockup */}
+            <div className="p-3.5 rounded-2xl neu-pressed space-y-2 text-left border border-indigo-500/10 text-xs">
+              <div className="flex justify-between items-baseline">
+                <span className="font-extrabold text-slate-800 dark:text-slate-200">Overall Score</span>
+                <span className="text-base font-black font-mono text-indigo-600 dark:text-indigo-400">88% (Excellent)</span>
+              </div>
+              <div className="space-y-1.5 pt-1 text-[11px]">
+                <div className="flex justify-between font-medium"><span>Grammar</span><span className="font-mono text-emerald-500 font-bold">86%</span></div>
+                <div className="flex justify-between font-medium"><span>Fluency</span><span className="font-mono text-blue-500 font-bold">90%</span></div>
+                <div className="flex justify-between font-medium"><span>Vocabulary</span><span className="font-mono text-violet-500 font-bold">84%</span></div>
+                <div className="flex justify-between font-medium"><span>Confidence</span><span className="font-mono text-amber-500 font-bold">92%</span></div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Feature 4: Timestamped Transcript & Filler Tracking */}
+          <Card className="p-6 rounded-3xl neu-flat space-y-4 flex flex-col justify-between border border-indigo-500/15 group hover:border-indigo-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-rose-500 flex items-center justify-center">
+                <FileText className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Timestamped Transcript
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                Word-by-word synced audio transcript that flags filler words ("um", "uh", "like") and speaking cadence shifts.
+              </p>
+            </div>
+
+            {/* Visual UI Preview Mockup */}
+            <div className="p-3.5 rounded-2xl neu-pressed space-y-2 text-left border border-rose-500/10 text-xs font-mono">
+              <div className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+                <span className="text-indigo-500 font-bold">[00:04]</span> Good morning everyone.{' '}
+                <span className="px-1 py-0.5 rounded bg-rose-500/20 text-rose-500 font-extrabold">Um</span>, today our focus is on{' '}
+                <span className="text-emerald-500 font-bold">strategic execution</span>.
+              </div>
+              <div className="text-[10px] text-slate-500 pt-1 border-t border-white/10 flex justify-between font-sans">
+                <span>Fillers Detected: <strong>1</strong></span>
+                <span className="text-emerald-500">Pace: 142 WPM</span>
+              </div>
+            </div>
+          </Card>
+
+          {/* Feature 5: Acoustic Signal Graphs */}
+          <Card className="p-6 rounded-3xl neu-flat space-y-4 flex flex-col justify-between border border-indigo-500/15 group hover:border-indigo-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-amber-500 flex items-center justify-center">
+                <Activity className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Acoustic Signal Graphs
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                Visualizes vocal dynamics, pitch modulation range, audio volume stability, and natural pause ratios across your talk.
+              </p>
+            </div>
+
+            {/* Visual UI Preview Mockup */}
+            <div className="p-3.5 rounded-2xl neu-pressed space-y-2 text-left border border-amber-500/10 text-xs">
+              <div className="flex justify-between text-[11px] font-bold">
+                <span>Vocal Pitch & Pacing Curve</span>
+                <span className="text-amber-500 font-mono">165 Hz avg</span>
+              </div>
+              {/* Mini wave graph representation */}
+              <div className="h-10 flex items-end gap-1.5 px-1 py-1 bg-slate-200/50 dark:bg-slate-900/80 rounded-xl overflow-hidden">
+                <div className="flex-1 bg-indigo-500 rounded-t h-[40%]" />
+                <div className="flex-1 bg-indigo-500 rounded-t h-[65%]" />
+                <div className="flex-1 bg-violet-500 rounded-t h-[90%]" />
+                <div className="flex-1 bg-indigo-500 rounded-t h-[60%]" />
+                <div className="flex-1 bg-amber-500 rounded-t h-[80%]" />
+                <div className="flex-1 bg-emerald-500 rounded-t h-[55%]" />
+                <div className="flex-1 bg-indigo-500 rounded-t h-[75%]" />
+                <div className="flex-1 bg-violet-500 rounded-t h-[85%]" />
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>0s</span>
+                <span>30s</span>
+                <span>60s</span>
+              </div>
+            </div>
+          </Card>
+
+          {/* Feature 6: Share & Export Executive Reports */}
+          <Card className="p-6 rounded-3xl neu-flat space-y-4 flex flex-col justify-between border border-indigo-500/15 group hover:border-indigo-500/40 transition-all">
+            <div className="space-y-3">
+              <div className="w-12 h-12 rounded-2xl neu-pressed text-emerald-500 flex items-center justify-center">
+                <Share2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Share & Export Reports
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                Share reports directly with recruiters, college mentors, or interview coaches with downloadable PDF summaries and password-protected links.
+              </p>
+            </div>
+
+            {/* Visual UI Preview Mockup */}
+            <div className="p-3.5 rounded-2xl neu-pressed space-y-2 text-left border border-emerald-500/10 text-xs">
+              <div className="flex items-center gap-2 text-slate-800 dark:text-slate-200 font-bold">
+                <Download className="w-4 h-4 text-emerald-500" />
+                <span>Executive PDF / CSV Export Ready</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-200/60 dark:bg-slate-900/80 font-mono text-[10px] text-slate-600 dark:text-slate-400 truncate">
+                https://speakwise.ai/reports/rep_88491
+              </div>
+              <Badge variant="emerald">Passcode Protected</Badge>
+            </div>
+          </Card>
+        </div>
+
+        {/* Bottom Call to Action Banner */}
+        <div className="p-8 sm:p-12 rounded-3xl neu-flat border border-indigo-500/30 text-center space-y-6 relative overflow-hidden">
+          <div className="max-w-2xl mx-auto space-y-3">
+            <h3 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+              Ready to Transform Your English Communication?
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
+              Start practicing with our goal-based prompts above, or unlock unlimited AI evaluations with the SpeakWise Pro Pass.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <button
+              onClick={() => {
+                practiceCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}
+              className="px-8 py-3.5 rounded-full neu-button text-xs font-black text-indigo-600 dark:text-indigo-400 hover:scale-105 transition-all shadow-neu-glow flex items-center gap-2"
+            >
+              <Mic className="w-4 h-4 text-emerald-500" />
+              <span>Practice Free on Screen 1</span>
+            </button>
+
+            <Button
+              variant="primary"
+              size="lg"
+              className="rounded-full px-8 py-3.5 text-xs font-black shadow-lg shadow-indigo-600/30"
+              onClick={openSubscriptionModal}
+              leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
+            >
+              Unlock Pro Pass (Starting ₹9)
+            </Button>
           </div>
         </div>
       </div>
@@ -980,7 +1194,7 @@ export const LandingPage: React.FC = () => {
       </AnimatePresence>
 
       {/* Homepage Footer with Compliance & Payment Links */}
-      <div className="w-full -mx-4 sm:-mx-6 mt-16">
+      <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 mt-16">
         <Footer />
       </div>
     </div>

@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "seed": "tsx src/scripts/seedContentRunner.ts",
-    "seed:groq": "tsx src/scripts/seedGroqContent.ts"
+    "seed:groq": "tsx src/scripts/seedGroqContent.ts",
+    "clean:db": "tsx src/scripts/cleanContentDb.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

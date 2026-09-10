@@ -2,14 +2,24 @@ import axios from 'axios';
 import { SpeechReport, PracticeSession, Topic, Achievement, DailyChallenge, AppNotification, LeaderboardUser } from '../types';
 
 const getApiBaseUrl = (): string => {
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL;
-  }
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (typeof window !== 'undefined') {
-    // Relative path ensures mobile devices on Wi-Fi/LAN route correctly through the server proxy
-    return '/api/v1';
+    const hostname = window.location.hostname;
+    // When running in a browser on a mobile device or remote host (not localhost on PC):
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      // If envUrl is an external/production URL (not localhost), use it
+      if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+        return envUrl;
+      }
+      // Otherwise, use relative '/api/v1' so requests proxy through the host without loopback errors
+      return '/api/v1';
+    }
   }
-  return 'http://localhost:5000/api/v1';
+
+  if (envUrl) {
+    return envUrl;
+  }
+  return '/api/v1';
 };
 
 const API_BASE = getApiBaseUrl();

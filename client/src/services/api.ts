@@ -3,23 +3,25 @@ import { SpeechReport, PracticeSession, Topic, Achievement, DailyChallenge, AppN
 
 const getApiBaseUrl = (): string => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    // When running in a browser on a mobile device or remote host (not localhost on PC):
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // If envUrl is an external/production URL (not localhost), use it
-      if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
-        return envUrl;
-      }
-      // Otherwise, use relative '/api/v1' so requests proxy through the host without loopback errors
-      return '/api/v1';
-    }
-  }
 
-  if (envUrl) {
+  // 1. If an external production URL is specified in env (not localhost)
+  if (envUrl && envUrl.startsWith('http') && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
     return envUrl;
   }
-  return '/api/v1';
+
+  // 2. In browser runtime
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname, port } = window.location;
+    // In local development on PC or mobile via Wi-Fi/LAN (port 3000 or 5173):
+    // Connect directly to the backend on port 5000 of the same hostname/IP
+    if (port === '3000' || port === '5173') {
+      return `${protocol}//${hostname}:5000/api/v1`;
+    }
+    // In production or when served by web server:
+    return envUrl || '/api/v1';
+  }
+
+  return 'http://localhost:5000/api/v1';
 };
 
 const API_BASE = getApiBaseUrl();

@@ -36,16 +36,9 @@ app.use(
   })
 );
 
-const allowedOrigins = [env.CORS_ORIGIN, 'http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
+    origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id', 'x-razorpay-signature', 'x-requested-with'],
@@ -92,8 +85,8 @@ registerAudioSocketHandlers(io);
 // Bootstrap Server & DB
 const startServer = async () => {
   await connectDB();
-  server.listen(env.PORT, () => {
-    logger.info(`🚀 SpeakWise AI Backend running on http://localhost:${env.PORT}`);
+  server.listen(env.PORT, '0.0.0.0', () => {
+    logger.info(`🚀 SpeakWise AI Backend running on port ${env.PORT} (0.0.0.0)`);
     logger.info(`📚 Swagger API Docs available at http://localhost:${env.PORT}/api-docs`);
   });
 };

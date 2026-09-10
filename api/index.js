@@ -6,6 +6,13 @@ const {
   setCorsHeaders,
 } = require('./_razorpay');
 
+const {
+  handleGoogleLogin,
+  handleLogin,
+  handleRegister,
+  handleGetMe,
+} = require('./_auth');
+
 module.exports = async (req, res) => {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
@@ -44,7 +51,28 @@ module.exports = async (req, res) => {
     }
   }
 
+  // ==========================================
+  // Authentication Endpoints
+  // ==========================================
+  if (pathname.endsWith('auth/google')) {
+    return handleGoogleLogin(req, res);
+  }
+
+  if (pathname.endsWith('auth/login')) {
+    return handleLogin(req, res);
+  }
+
+  if (pathname.endsWith('auth/register')) {
+    return handleRegister(req, res);
+  }
+
+  if (pathname.endsWith('auth/me')) {
+    return handleGetMe(req, res);
+  }
+
+  // ==========================================
   // Razorpay Order Creation
+  // ==========================================
   if (
     pathname.endsWith('create-order') ||
     pathname.endsWith('subscription/create-order') ||
@@ -54,7 +82,9 @@ module.exports = async (req, res) => {
     return handleCreateOrder(req, res);
   }
 
+  // ==========================================
   // Razorpay Payment Verification
+  // ==========================================
   if (
     pathname.endsWith('verify-payment') ||
     pathname.endsWith('subscription/verify-payment') ||
@@ -64,7 +94,9 @@ module.exports = async (req, res) => {
     return handleVerifyPayment(req, res);
   }
 
-  // Usage endpoints
+  // ==========================================
+  // Usage Status & Limit Endpoints
+  // ==========================================
   if (pathname.endsWith('usage/status')) {
     return handleUsageStatus(req, res);
   }
@@ -73,7 +105,9 @@ module.exports = async (req, res) => {
     return handleUsageConsume(req, res);
   }
 
+  // ==========================================
   // Health check
+  // ==========================================
   if (pathname === '/api/health' || pathname === '/api/v1/health' || pathname === '/api' || pathname === '') {
     return res.status(200).json({
       status: 'UP',

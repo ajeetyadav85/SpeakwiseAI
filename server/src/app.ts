@@ -85,10 +85,12 @@ registerAudioSocketHandlers(io);
 // Bootstrap Server & DB
 const startServer = async () => {
   await connectDB();
-  server.listen(env.PORT, '0.0.0.0', () => {
-    logger.info(`🚀 SpeakWise AI Backend running on port ${env.PORT} (0.0.0.0)`);
-    logger.info(`📚 Swagger API Docs available at http://localhost:${env.PORT}/api-docs`);
-  });
+  if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+    server.listen(env.PORT, '0.0.0.0', () => {
+      logger.info(`🚀 SpeakWise AI Backend running on port ${env.PORT} (0.0.0.0)`);
+      logger.info(`📚 Swagger API Docs available at http://localhost:${env.PORT}/api-docs`);
+    });
+  }
 };
 
 startServer();

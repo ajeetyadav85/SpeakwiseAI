@@ -1,17 +1,25 @@
-const {
-  handleCreateOrder,
-  handleVerifyPayment,
-  handleUsageStatus,
-  handleUsageConsume,
-  setCorsHeaders,
-} = require('./_razorpay');
+// Vercel Serverless Function entry point wrapping the existing Express application
+let appPromise = null;
 
-const {
-  handleGoogleLogin,
-  handleLogin,
-  handleRegister,
-  handleGetMe,
-} = require('./_auth');
+async function getExpressApp() {
+  if (!appPromise) {
+    process.env.VERCEL = '1';
+    appPromise = (async () => {
+      try {
+        const mod = await import('../server/dist/app.js');
+        return mod.default || mod;
+      } catch (err) {
+        console.error('[VERCEL SERVERLESS] Error importing server/dist/app.js:', err);
+        return null;
+      }
+    })();
+  }
+  return appPromise;
+}
+
+// Fallback handlers for extreme resiliency
+const { handleCreateOrder, handleVerifyPayment, handleUsageStatus, handleUsageConsume, setCorsHeaders } = require('./_razorpay');
+const { handleGoogleLogin, handleLogin, handleRegister, handleGetMe } = require('./_auth');
 
 module.exports = async (req, res) => {
   setCorsHeaders(res);
@@ -19,96 +27,38 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  // Parse path
+  // Restore the original incoming request URL if Vercel's rewrite modified it
+  const matchedPath = req.headers['x-matched-path'] || req.headers['x-invoke-path'];
+  if (matchedPath && (matchedPath.startsWith('/api') || matchedPath.startsWith('/health'))) {
+    const urlObj = new URL(req.url, 'http://localhost');
+    req.url = matchedPath + (urlObj.search || '');
+  }
+
+  // 1. Primary: Forward directly to your existing Express app instance
+  try {
+    const expressApp = await getExpressApp();
+    if (expressApp && typeof expressApp === 'function') {
+      return expressApp(req, res);
+    }
+  } catch (expressErr) {
+    console.warn('[VERCEL SERVERLESS] Express app dispatch error, engaging fallback handler:', expressErr.message);
+  }
+
+  // 2. Fallback: Self-contained routes in case database or server build is unreachable
   const host = req.headers.host || 'localhost';
   const url = new URL(req.url, `http://${host}`);
   const pathname = url.pathname.toLowerCase().replace(/\/$/, '');
 
-  // If an external backend is configured via environment variable, proxy to it
-  const backendUrl = process.env.BACKEND_URL;
-  if (backendUrl && !pathname.includes('create-order') && !pathname.includes('verify-payment')) {
-    try {
-      const targetUrl = `${backendUrl.replace(/\/$/, '')}${url.pathname}${url.search}`;
-      const headers = { ...req.headers, host: new URL(backendUrl).host };
-      delete headers['content-length'];
+  if (pathname.endsWith('auth/google')) return handleGoogleLogin(req, res);
+  if (pathname.endsWith('auth/login')) return handleLogin(req, res);
+  if (pathname.endsWith('auth/register')) return handleRegister(req, res);
+  if (pathname.endsWith('auth/me')) return handleGetMe(req, res);
+  if (pathname.endsWith('create-order')) return handleCreateOrder(req, res);
+  if (pathname.endsWith('verify-payment')) return handleVerifyPayment(req, res);
+  if (pathname.endsWith('usage/status')) return handleUsageStatus(req, res);
+  if (pathname.endsWith('usage/consume')) return handleUsageConsume(req, res);
 
-      const proxyRes = await fetch(targetUrl, {
-        method: req.method,
-        headers,
-        body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
-      });
-
-      res.status(proxyRes.status);
-      proxyRes.headers.forEach((val, key) => {
-        if (!key.toLowerCase().startsWith('content-encoding')) {
-          res.setHeader(key, val);
-        }
-      });
-      const data = await proxyRes.text();
-      return res.send(data);
-    } catch (proxyErr) {
-      console.warn('[VERCEL PROXY] Backend proxy failed:', proxyErr.message);
-    }
-  }
-
-  // ==========================================
-  // Authentication Endpoints
-  // ==========================================
-  if (pathname.endsWith('auth/google')) {
-    return handleGoogleLogin(req, res);
-  }
-
-  if (pathname.endsWith('auth/login')) {
-    return handleLogin(req, res);
-  }
-
-  if (pathname.endsWith('auth/register')) {
-    return handleRegister(req, res);
-  }
-
-  if (pathname.endsWith('auth/me')) {
-    return handleGetMe(req, res);
-  }
-
-  // ==========================================
-  // Razorpay Order Creation
-  // ==========================================
-  if (
-    pathname.endsWith('create-order') ||
-    pathname.endsWith('subscription/create-order') ||
-    pathname === '/api/create-order' ||
-    pathname === '/api/v1/create-order'
-  ) {
-    return handleCreateOrder(req, res);
-  }
-
-  // ==========================================
-  // Razorpay Payment Verification
-  // ==========================================
-  if (
-    pathname.endsWith('verify-payment') ||
-    pathname.endsWith('subscription/verify-payment') ||
-    pathname === '/api/verify-payment' ||
-    pathname === '/api/v1/verify-payment'
-  ) {
-    return handleVerifyPayment(req, res);
-  }
-
-  // ==========================================
-  // Usage Status & Limit Endpoints
-  // ==========================================
-  if (pathname.endsWith('usage/status')) {
-    return handleUsageStatus(req, res);
-  }
-
-  if (pathname.endsWith('usage/consume')) {
-    return handleUsageConsume(req, res);
-  }
-
-  // ==========================================
-  // Health check
-  // ==========================================
-  if (pathname === '/api/health' || pathname === '/api/v1/health' || pathname === '/api' || pathname === '') {
+  if (pathname === '/api/health' || pathname === '/api/v1/health' || pathname === '/health' || pathname === '/api') {
     return res.status(200).json({
       status: 'UP',
       service: 'SpeakWise AI Vercel Serverless API',

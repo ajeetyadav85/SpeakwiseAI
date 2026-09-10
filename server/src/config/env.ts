@@ -5,7 +5,9 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env'), override: true });
+dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
+dotenv.config({ override: true });
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -25,8 +27,8 @@ export const env = {
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || 'speakwise-cloud',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '1234567890',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || 'secretkey',
-  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TVdCGH3uhXsGUX',
-  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '50AV2mMLnKBmY57IzkettUmN',
-  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || '50AV2mMLnKBmY57IzkettUmN',
+  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || 'rzp_live_TaDSoq9X70XrEX',
+  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || 'Myvp7zXzgAwvoiV7O16C1Yrh',
+  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || 'Myvp7zXzgAwvoiV7O16C1Yrh',
 };
 

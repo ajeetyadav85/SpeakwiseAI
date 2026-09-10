@@ -12,6 +12,8 @@ export interface UsageStatusResult {
   canProceed: boolean;
   isPro: boolean;
   message?: string;
+  planId?: string;
+  expiresAt?: string;
 }
 
 export class UsageService {
@@ -51,14 +53,22 @@ export class UsageService {
 
     // 1. Pro User (Unlimited)
     if (user && (user.role === 'PRO_USER' || user.role === 'SUPER_ADMIN' || user.role === 'ORG_ADMIN')) {
-      return {
-        planType: 'PRO',
-        attemptsUsed: 0,
-        attemptsLeft: 9999,
-        maxAttempts: 9999,
-        canProceed: true,
-        isPro: true,
-      };
+      if (user.role === 'PRO_USER' && user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt).getTime() <= Date.now()) {
+        logger.info(`[USAGE] Pro subscription expired for user ${user._id} on ${user.subscriptionExpiresAt.toISOString()}. Downgrading to FREESTYLE_USER.`);
+        user.role = 'FREESTYLE_USER';
+        await user.save().catch((err) => logger.error('Error auto-downgrading expired user', err));
+      } else {
+        return {
+          planType: 'PRO',
+          attemptsUsed: 0,
+          attemptsLeft: 9999,
+          maxAttempts: 9999,
+          canProceed: true,
+          isPro: true,
+          planId: user.subscriptionPlan,
+          expiresAt: user.subscriptionExpiresAt ? user.subscriptionExpiresAt.toISOString() : undefined,
+        };
+      }
     }
 
     // 2. Logged-In User (Freestyle Plan - 10 Total Free Uses including Guest Uses)

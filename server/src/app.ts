@@ -14,6 +14,8 @@ import { logger } from './utils/logger.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import apiRouter from './routes/index.js';
 import { registerAudioSocketHandlers } from './websocket/audioStream.socket.js';
+import { createOrderController, verifyPaymentController } from './controllers/subscription.controller.js';
+import { optionalJWT } from './middlewares/auth.middleware.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -70,6 +72,10 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'UP', service: 'SpeakWise AI Engine', timestamp: new Date().toISOString() });
 });
+
+// Direct Razorpay Standard Web Checkout Endpoints
+app.post('/api/create-order', optionalJWT, createOrderController);
+app.post('/api/verify-payment', optionalJWT, verifyPaymentController);
 
 // Mount Main REST API Routes
 app.use(env.API_PREFIX, apiRouter);

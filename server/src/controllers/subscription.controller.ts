@@ -47,63 +47,102 @@ const getRazorpayInstance = (): Razorpay | null => {
 
 /**
  * 1. Create Razorpay Order
- * Route: POST /api/v1/subscription/create-order
+ * Route: POST /api/create-order or /api/v1/subscription/create-order
+ * Request: { amount (paise), currency, receipt, planId }
+ * Return: { order_id, amount, currency, ... }
  */
 export const createOrderController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { planId = '1_MONTH', currency = 'INR' } = req.body;
-    const planPriceInr = PLAN_PRICES_INR[planId] || 99;
-    const amountInPaise = planPriceInr * 100;
-    const keyId = env.RAZORPAY_KEY_ID;
+    const { planId = '1_MONTH', currency = 'INR', receipt, amount } = req.body;
 
-    const razorpay = getRazorpayInstance();
-    let orderId = '';
+    // Determine amount in paise (minimum 100 paise = ₹1.00)
+    let amountInPaise: number;
+    let planPriceInr: number;
 
-    if (razorpay) {
-      try {
-        const order = await razorpay.orders.create({
-          amount: amountInPaise,
-          currency: currency || 'INR',
-          receipt: `rcpt_${planId.toLowerCase()}_${Date.now().toString().slice(-8)}`,
-          notes: {
-            planId,
-            userId: req.user?.id || 'guest',
-            userEmail: req.user?.email || 'user@speakwise.ai',
-          },
-        });
-        orderId = order.id;
-        console.log(`\n======================================================`);
-        console.log(`[PAYMENT][ORDER CREATED] Razorpay Order: ${orderId}`);
-        console.log(`[PAYMENT][AMOUNT] ₹${planPriceInr} (${amountInPaise} paise) | Plan: ${planId}`);
-        console.log(`======================================================\n`);
-        logger.info(`[PAYMENT] Created Razorpay order: ${orderId} for plan ${planId} (₹${planPriceInr})`);
-      } catch (err: any) {
-        console.warn(`[PAYMENT][ORDER FALLBACK] Razorpay API warning: ${err?.message}`);
-        orderId = 'order_' + crypto.randomBytes(8).toString('hex');
-      }
+    if (amount !== undefined && amount !== null) {
+      amountInPaise = Number(amount);
+      planPriceInr = Math.round(amountInPaise / 100);
     } else {
-      orderId = 'order_' + crypto.randomBytes(8).toString('hex');
+      planPriceInr = PLAN_PRICES_INR[planId] || 99;
+      amountInPaise = planPriceInr * 100;
     }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        orderId,
+    // Minimum amount validation
+    if (!amountInPaise || isNaN(amountInPaise) || amountInPaise < 100) {
+      res.status(400).json({
+        success: false,
+        error: 'Amount must be at least 100 paise (₹1.00)',
+      });
+      return;
+    }
+
+    const keyId = env.RAZORPAY_KEY_ID;
+    const razorpay = getRazorpayInstance();
+
+    if (!razorpay) {
+      logger.error('[PAYMENT] Razorpay SDK is not initialized. Verify RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env');
+      res.status(500).json({
+        success: false,
+        error: 'Payment gateway configuration error: Razorpay SDK not initialized',
+      });
+      return;
+    }
+
+    try {
+      const orderReceipt = receipt || `rcpt_${planId.toLowerCase()}_${Date.now().toString().slice(-8)}`;
+      const order = await razorpay.orders.create({
         amount: amountInPaise,
-        amountInr: planPriceInr,
-        currency,
-        keyId,
-        planId,
-      },
-    });
+        currency: currency || 'INR',
+        receipt: orderReceipt,
+        notes: {
+          planId,
+          userId: req.user?.id || 'guest',
+          userEmail: req.user?.email || 'user@speakwise.ai',
+        },
+      });
+
+      const orderId = order.id;
+      logger.info(`[PAYMENT] Created Razorpay order: ${orderId} for amount ${amountInPaise} paise (${currency})`);
+
+      res.status(200).json({
+        success: true,
+        order_id: orderId,
+        orderId: orderId,
+        id: orderId,
+        amount: order.amount || amountInPaise,
+        currency: order.currency || currency || 'INR',
+        key_id: keyId,
+        keyId: keyId,
+        receipt: orderReceipt,
+        data: {
+          order_id: orderId,
+          orderId: orderId,
+          id: orderId,
+          amount: order.amount || amountInPaise,
+          amountInr: planPriceInr,
+          currency: order.currency || currency || 'INR',
+          keyId,
+          planId,
+        },
+      });
+    } catch (razorpayErr: any) {
+      logger.error(`[PAYMENT] Razorpay orders.create API error: ${razorpayErr?.message || razorpayErr}`);
+      res.status(razorpayErr?.statusCode || 500).json({
+        success: false,
+        error: razorpayErr?.error?.description || razorpayErr?.message || 'Failed to create Razorpay order',
+      });
+    }
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * 2. Verify Payment & Callback Handler
- * Route: POST /api/v1/subscription/verify-payment
+ * 2. Verify Payment Signature & Upgrade Subscription
+ * Route: POST /api/verify-payment or /api/v1/subscription/verify-payment
+ * Algorithm: HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET)
+ * Compare generated signature with razorpay_signature
+ * Return success only if signatures match
  */
 export const verifyPaymentController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -116,8 +155,55 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
       paymentMethod = 'RAZORPAY_GATEWAY',
       userEmail,
       userName,
+      currentExpiresAt,
     } = req.body;
 
+    // 1. Missing fields check: return 400
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing required payment verification fields: razorpay_order_id, razorpay_payment_id, and razorpay_signature are required.',
+      });
+      return;
+    }
+
+    const keySecret = env.RAZORPAY_KEY_SECRET;
+    if (!keySecret) {
+      res.status(500).json({
+        success: false,
+        error: 'Razorpay secret key is not configured on the server',
+      });
+      return;
+    }
+
+    // 2. Algorithm: HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET)
+    const expectedSignature = crypto
+      .createHmac('sha256', keySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    // Compare generated signature with razorpay_signature
+    let isMatch = false;
+    if (expectedSignature.length === razorpay_signature.length) {
+      isMatch = crypto.timingSafeEqual(
+        Buffer.from(expectedSignature, 'utf-8'),
+        Buffer.from(razorpay_signature, 'utf-8')
+      );
+    }
+
+    // Signature mismatch: return 400, do NOT mark as paid
+    if (!isMatch) {
+      logger.warn(`[PAYMENT] ❌ Signature verification failed for order ${razorpay_order_id}`);
+      res.status(400).json({
+        success: false,
+        error: 'Payment verification failed: Invalid signature',
+      });
+      return;
+    }
+
+    logger.info(`[PAYMENT] ✅ HMAC-SHA256 Signature verified for order ${razorpay_order_id}`);
+
+    // 3. Mark as paid in database & stack subscription onto existing expiry
     const userId = req.user?.id;
     const effectiveEmail = req.user?.email || userEmail || 'user@speakwise.ai';
     const effectiveName = req.user?.fullName || userName || 'Valued Speaker';
@@ -125,55 +211,48 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
     const durationHours = PLAN_DURATION_HOURS[planId] || 720;
     const planPriceInr = PLAN_PRICES_INR[planId] || 99;
     const paymentTimestamp = new Date();
-    const expiresAt = new Date(paymentTimestamp.getTime() + durationHours * 60 * 60 * 1000);
+    const nowMs = paymentTimestamp.getTime();
+    let baseTimeMs = nowMs;
 
-    const keySecret = env.RAZORPAY_KEY_SECRET;
-    let signatureVerified = false;
-
-    console.log(`\n======================================================`);
-    console.log(`[PAYMENT][VERIFY REQUEST] Processing Payment Verification`);
-    console.log(`  • Payment ID: ${razorpay_payment_id || 'N/A'}`);
-    console.log(`  • Order ID:   ${razorpay_order_id || 'N/A'}`);
-    console.log(`  • Plan ID:    ${planId} (₹${planPriceInr})`);
-    console.log(`  • User Email: ${effectiveEmail}`);
-
-    // Verify HMAC-SHA256 Signature using Razorpay Key Secret
-    if (razorpay_signature && keySecret && razorpay_order_id && razorpay_payment_id) {
-      const generatedSignature = crypto
-        .createHmac('sha256', keySecret)
-        .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-        .digest('hex');
-
-      if (generatedSignature === razorpay_signature) {
-        signatureVerified = true;
-        console.log(`[PAYMENT][SIGNATURE] ✅ HMAC-SHA256 Signature Verified Successfully!`);
-      } else {
-        console.log(`[PAYMENT][SIGNATURE] ❌ Signature Mismatch!`);
-        console.log(`  Expected: ${generatedSignature}`);
-        console.log(`  Received: ${razorpay_signature}`);
-      }
-    } else {
-      console.log(`[PAYMENT][SIGNATURE] ℹ️ Test / Direct Verification Mode`);
-      signatureVerified = true;
+    // Fetch existing user to check if they have active subscription time left
+    let existingUser: any = null;
+    if (userId) {
+      existingUser = await UserModel.findById(userId);
+    } else if (effectiveEmail) {
+      existingUser = await UserModel.findOne({ email: effectiveEmail.toLowerCase().trim() });
     }
 
-    const orderId = razorpay_order_id || `order_${Date.now()}`;
-    const paymentId = razorpay_payment_id || `pay_${Date.now()}`;
+    if (existingUser?.subscriptionExpiresAt) {
+      const currentExpiryMs = new Date(existingUser.subscriptionExpiresAt).getTime();
+      if (currentExpiryMs > nowMs) {
+        // Stack the new duration on top of the remaining time!
+        baseTimeMs = currentExpiryMs;
+        logger.info(`[PAYMENT] ⏱️ Stacking subscription for user ${existingUser._id}: Existing expiry was ${new Date(currentExpiryMs).toISOString()}, adding ${durationHours}h -> New expiry: ${new Date(baseTimeMs + durationHours * 3600 * 1000).toISOString()}`);
+      }
+    } else if (currentExpiresAt) {
+      const clientExpiryMs = new Date(currentExpiresAt).getTime();
+      if (!isNaN(clientExpiryMs) && clientExpiryMs > nowMs) {
+        baseTimeMs = clientExpiryMs;
+        logger.info(`[PAYMENT] ⏱️ Stacking subscription from client state: Adding ${durationHours}h onto ${new Date(clientExpiryMs).toISOString()} -> New expiry: ${new Date(baseTimeMs + durationHours * 3600 * 1000).toISOString()}`);
+      }
+    }
 
-    // 1. Record Transaction into MongoDB
+    const expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+
+    // Record Transaction into MongoDB
     let savedTransaction: any = null;
     try {
       savedTransaction = await PaymentTransactionModel.create({
-        userId: userId || undefined,
+        userId: existingUser?._id || userId || undefined,
         userEmail: effectiveEmail,
         userName: effectiveName,
-        orderId,
-        paymentId,
-        signature: razorpay_signature || '',
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        signature: razorpay_signature,
         planId,
         amount: planPriceInr,
         currency: 'INR',
-        status: signatureVerified ? 'SUCCESS' : 'FAILED',
+        status: 'SUCCESS',
         paymentMethod: paymentMethod || 'RAZORPAY_GATEWAY',
         durationHours,
         paidAt: paymentTimestamp,
@@ -181,39 +260,48 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
         notes: {
           planType,
           verifiedAt: paymentTimestamp.toISOString(),
-          isSignatureVerified: signatureVerified,
+          isSignatureVerified: true,
+          stackedFromPreviousExpiry: baseTimeMs !== nowMs,
         },
       });
-      console.log(`[PAYMENT][DATABASE] ✅ Saved PaymentTransaction to MongoDB (ID: ${savedTransaction._id})`);
+      logger.info(`[PAYMENT] Saved PaymentTransaction ${savedTransaction._id} to MongoDB`);
     } catch (dbErr: any) {
-      console.error(`[PAYMENT][DATABASE ERROR] Failed saving transaction: ${dbErr?.message}`);
+      logger.error(`[PAYMENT] Failed saving transaction to DB: ${dbErr?.message}`);
     }
 
-    // 2. Update User Record in MongoDB
-    if (userId) {
+    // Update User Record in MongoDB
+    if (existingUser) {
+      try {
+        existingUser.role = 'PRO_USER';
+        existingUser.subscriptionPlan = planId;
+        existingUser.subscriptionExpiresAt = expiresAt;
+        await existingUser.save();
+        logger.info(`[PAYMENT] ✅ Upgraded/Extended user ${existingUser._id} to PRO_USER until ${expiresAt.toISOString()}`);
+      } catch (userDbErr: any) {
+        logger.error(`[PAYMENT] User DB update error: ${userDbErr?.message}`);
+      }
+    } else if (userId) {
       try {
         await UserModel.findByIdAndUpdate(userId, {
           role: 'PRO_USER',
           subscriptionPlan: planId,
           subscriptionExpiresAt: expiresAt,
         });
-        console.log(`[PAYMENT][USER DB] ✅ User ${userId} upgraded to PRO_USER until ${expiresAt.toLocaleString()}`);
+        logger.info(`[PAYMENT] Upgraded user ${userId} to PRO_USER until ${expiresAt.toISOString()}`);
       } catch (userDbErr: any) {
-        console.error(`[PAYMENT][USER DB ERROR] ${userDbErr?.message}`);
+        logger.error(`[PAYMENT] User DB update error: ${userDbErr?.message}`);
       }
     }
 
-    console.log(`======================================================\n`);
-
     res.status(200).json({
       success: true,
-      message: `Payment of ₹${planPriceInr} verified and recorded in database. Pro plan active until ${expiresAt.toLocaleString()}.`,
+      message: 'Payment verified successfully',
       data: {
-        transactionId: savedTransaction?._id || paymentId,
-        paymentId,
-        orderId,
+        transactionId: savedTransaction?._id || razorpay_payment_id,
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id,
         status: 'SUCCESS',
-        isSignatureVerified: signatureVerified,
+        isSignatureVerified: true,
         isPro: true,
         planId,
         paidAt: paymentTimestamp.toISOString(),
@@ -269,13 +357,47 @@ export const razorpayWebhookController = async (req: Request, res: Response): Pr
       const notes = paymentEntity.notes || {};
       const planId = notes.planId || '1_MONTH';
       const durationHours = PLAN_DURATION_HOURS[planId] || 720;
-      const expiresAt = new Date(Date.now() + durationHours * 3600 * 1000);
+      const paymentTimestamp = new Date();
+      const nowMs = paymentTimestamp.getTime();
+      let baseTimeMs = nowMs;
+
+      // Check if existing user has active subscription to stack
+      let existingUser: any = null;
+      if (notes.userId && notes.userId !== 'guest') {
+        existingUser = await UserModel.findById(notes.userId).catch(() => null);
+      }
+      if (!existingUser && email) {
+        existingUser = await UserModel.findOne({ email: email.toLowerCase().trim() }).catch(() => null);
+      }
+
+      if (existingUser?.subscriptionExpiresAt) {
+        const currentExpiryMs = new Date(existingUser.subscriptionExpiresAt).getTime();
+        if (currentExpiryMs > nowMs) {
+          baseTimeMs = currentExpiryMs;
+          console.log(`[RAZORPAY WEBHOOK] ⏱️ Stacking subscription for user ${existingUser._id}: adding ${durationHours}h onto existing expiry`);
+        }
+      }
+
+      const expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+
+      if (existingUser) {
+        try {
+          existingUser.role = 'PRO_USER';
+          existingUser.subscriptionPlan = planId;
+          existingUser.subscriptionExpiresAt = expiresAt;
+          await existingUser.save();
+          console.log(`[RAZORPAY WEBHOOK] ✅ Extended user ${existingUser._id} to PRO_USER until ${expiresAt.toISOString()}`);
+        } catch (uErr: any) {
+          console.error(`[RAZORPAY WEBHOOK] Failed to update user in DB: ${uErr?.message}`);
+        }
+      }
 
       // Record in MongoDB
       try {
         await PaymentTransactionModel.findOneAndUpdate(
           { paymentId },
           {
+            userId: existingUser?._id,
             userEmail: email,
             orderId: orderId || `order_${Date.now()}`,
             paymentId,
@@ -285,9 +407,9 @@ export const razorpayWebhookController = async (req: Request, res: Response): Pr
             status: 'SUCCESS',
             paymentMethod: paymentEntity.method || 'RAZORPAY_WEBHOOK',
             durationHours,
-            paidAt: new Date(),
+            paidAt: paymentTimestamp,
             expiresAt,
-            notes: { event, webhookReceived: true },
+            notes: { event, webhookReceived: true, stacked: baseTimeMs !== nowMs },
           },
           { upsert: true, new: true }
         );

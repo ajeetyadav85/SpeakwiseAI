@@ -1,18 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSubscriptionStore, SUBSCRIPTION_PLANS } from '../../stores/useSubscriptionStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { RazorpayService } from '../../services/razorpay.service';
+import { getSubscriptionRemainingTime } from '../../lib/subscriptionTimer';
 import { SubscriptionPlanOption } from '../../types';
 import {
   X,
-  CheckCircle2,
   Crown,
   ShieldCheck,
   ArrowRight,
-  Sparkles,
-  Smartphone,
-  CreditCard,
-  Building2,
   Clock,
   Zap,
   Check,
@@ -36,43 +32,60 @@ export const SubscriptionModal: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanOption>(SUBSCRIPTION_PLANS[0]);
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  // Live real-time seconds ticker
+  useEffect(() => {
+    if (!subscriptionModalOpen) return;
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [subscriptionModalOpen]);
 
   if (!subscriptionModalOpen) return null;
 
   const currentPlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId) || SUBSCRIPTION_PLANS[2];
+  const remaining = getSubscriptionRemainingTime(planExpiresAt);
 
-  const formatRemainingTime = (expiresAtStr: string | null): string => {
-    if (!expiresAtStr) return 'Active';
-    const diffMs = new Date(expiresAtStr).getTime() - Date.now();
-    if (diffMs <= 0) return 'Expired';
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const days = Math.floor(hours / 24);
-    const remainingHours = hours % 24;
-    if (days > 0) {
-      return `${days}d ${remainingHours}h remaining`;
+  // Compute what the new stacked expiry would be if user recharges with selectedPlan
+  const calculateStackedExpiry = (durationHours: number) => {
+    let baseTimeMs = Date.now();
+    if (planExpiresAt) {
+      const existingMs = new Date(planExpiresAt).getTime();
+      if (existingMs > baseTimeMs) {
+        baseTimeMs = existingMs;
+      }
     }
-    const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}h ${mins}m remaining`;
+    return new Date(baseTimeMs + durationHours * 3600 * 1000);
   };
+
+  const previewNewExpiry = calculateStackedExpiry(selectedPlan.durationHours);
 
   // Directly launch official Razorpay checkout (PhonePe, GPay, Paytm, Cards, NetBanking)
   const handleProceedToPay = async () => {
     setIsLoading(true);
+    setErrorMessage(null);
     const result = await RazorpayService.processSubscriptionPayment(selectedPlan);
     setIsLoading(false);
-    if (result) {
+    if (result.success) {
       setSuccess(true);
-      upgradeToPro(selectedPlan.id, selectedPlan.durationHours);
+      const serverExpiresAt = result.data?.expiresAt;
+      upgradeToPro(selectedPlan.id, selectedPlan.durationHours, serverExpiresAt);
       if (user) {
         useAuthStore.getState().updateUser({
           role: 'PRO_USER',
           subscriptionPlan: selectedPlan.id,
+          subscriptionExpiresAt: serverExpiresAt,
         });
       }
       setTimeout(() => {
         setSuccess(false);
         closeSubscriptionModal();
       }, 1500);
+    } else if (result.error) {
+      setErrorMessage(result.error);
     }
   };
 
@@ -104,7 +117,7 @@ export const SubscriptionModal: React.FC = () => {
 
         {/* Active Pro Membership Status (When already subscribed) */}
         {isPro && (
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-indigo-500/10 to-transparent border border-emerald-500/30 space-y-2">
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-indigo-500/10 to-transparent border border-emerald-500/30 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -112,10 +125,11 @@ export const SubscriptionModal: React.FC = () => {
                   Active Pro Membership
                 </span>
               </div>
-              <Badge variant="emerald">{formatRemainingTime(planExpiresAt)}</Badge>
+              <Badge variant="emerald">{remaining.badgeText}</Badge>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+
+            <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-emerald-500/20">
               <div>
                 <span className="text-slate-500 dark:text-slate-400 font-bold block text-[10px]">Current Plan</span>
                 <span className="font-extrabold text-slate-900 dark:text-white">{currentPlan.name}</span>
@@ -131,6 +145,8 @@ export const SubscriptionModal: React.FC = () => {
             </div>
           </div>
         )}
+
+
 
         {/* 6-Plan Recharge Grid */}
         <div className="space-y-1.5">
@@ -238,19 +254,44 @@ export const SubscriptionModal: React.FC = () => {
           </div>
         </div>
 
+        {/* Payment Error Notification Banner */}
+        {errorMessage && (
+          <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between gap-2 animate-in fade-in">
+            <span>{errorMessage}</span>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 text-xs font-bold shrink-0 ml-2"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Direct Proceed to Pay Button (Opens Razorpay Checkout) */}
-        <Button
-          size="lg"
-          variant="primary"
-          className="w-full rounded-full py-3.5 text-xs sm:text-sm font-extrabold shadow-xl shadow-indigo-600/30 justify-center flex items-center gap-2"
-          onClick={handleProceedToPay}
-          isLoading={isLoading}
-          rightIcon={<ArrowRight className="w-4 h-4" />}
-        >
-          {success
-            ? 'Pro Plan Activated! 🎉'
-            : `Proceed to Pay ₹${selectedPlan.priceInr} with Razorpay`}
-        </Button>
+        <div className="space-y-1.5">
+          <Button
+            size="lg"
+            variant="primary"
+            className="w-full rounded-full py-3.5 text-xs sm:text-sm font-extrabold shadow-xl shadow-indigo-600/30 justify-center flex items-center gap-2"
+            onClick={handleProceedToPay}
+            isLoading={isLoading}
+            rightIcon={<ArrowRight className="w-4 h-4" />}
+          >
+            {success
+              ? 'Pro Plan Activated! 🎉'
+              : isPro
+              ? `Add +${selectedPlan.durationLabel} to Pro • Pay ₹${selectedPlan.priceInr}`
+              : `Proceed to Pay ₹${selectedPlan.priceInr} with Razorpay`}
+          </Button>
+          {isPro && (
+            <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">
+              ⚡ Extended expiry after recharge:{' '}
+              <strong className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                {previewNewExpiry.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+              </strong>
+            </p>
+          )}
+        </div>
 
         {/* Security Trust Footer */}
         <div className="flex items-center justify-center gap-2 text-[10px] text-slate-500 font-medium pt-0.5">

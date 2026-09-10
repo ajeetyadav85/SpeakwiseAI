@@ -99,7 +99,7 @@ interface SubscriptionState {
   // Actions
   fetchUsageStatus: () => Promise<UsageStatusResponse>;
   decrementAttempts: () => Promise<boolean>;
-  upgradeToPro: (planId?: SubscriptionPlanId, durationHours?: number) => void;
+  upgradeToPro: (planId?: SubscriptionPlanId, durationHours?: number, explicitExpiresAt?: string) => void;
   openSubscriptionModal: () => void;
   closeSubscriptionModal: () => void;
   openUpgradeLimitModal: () => void;
@@ -238,10 +238,30 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     }
   },
 
-  upgradeToPro: (planId: SubscriptionPlanId = '1_MONTH', durationHours: number = 720) => {
-    const expiresAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
+  upgradeToPro: (
+    planId: SubscriptionPlanId = '1_MONTH',
+    durationHours: number = 720,
+    explicitExpiresAt?: string
+  ) => {
+    let finalExpiresAt: string;
+
+    if (explicitExpiresAt && !isNaN(new Date(explicitExpiresAt).getTime())) {
+      finalExpiresAt = explicitExpiresAt;
+    } else {
+      // Stack onto current active expiry if still valid
+      const existingExpiresAt = get().planExpiresAt || localStorage.getItem('speakwise_sub_expiry');
+      let baseTimeMs = Date.now();
+      if (existingExpiresAt) {
+        const existingMs = new Date(existingExpiresAt).getTime();
+        if (existingMs > baseTimeMs) {
+          baseTimeMs = existingMs;
+        }
+      }
+      finalExpiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000).toISOString();
+    }
+
     try {
-      localStorage.setItem('speakwise_sub_expiry', expiresAt);
+      localStorage.setItem('speakwise_sub_expiry', finalExpiresAt);
       localStorage.setItem('speakwise_sub_plan', planId);
     } catch (e) {}
 
@@ -249,11 +269,14 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       isPro: true,
       planType: 'PRO',
       activePlanId: planId,
-      planExpiresAt: expiresAt,
+      planExpiresAt: finalExpiresAt,
       freeAttemptsLeft: 9999,
+      maxAttempts: 9999,
+      attemptsUsed: 0,
       canProceed: true,
       subscriptionModalOpen: false,
       upgradeLimitModalOpen: false,
+      message: 'Pro Active',
     });
   },
 

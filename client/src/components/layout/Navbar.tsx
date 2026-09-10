@@ -28,6 +28,7 @@ import {
 import { Button } from '../ui/Button';
 import { SubscriptionModal } from '../subscription/SubscriptionModal';
 import { UpgradeLimitModal } from '../subscription/UpgradeLimitModal';
+import { getSubscriptionRemainingTime } from '../../lib/subscriptionTimer';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -37,6 +38,7 @@ export const Navbar: React.FC = () => {
     freeAttemptsLeft,
     planType,
     isPro,
+    planExpiresAt,
     fetchUsageStatus,
     openSubscriptionModal,
   } = useSubscriptionStore();
@@ -45,6 +47,18 @@ export const Navbar: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [, setTick] = useState(0);
+
+  // Live countdown ticker for Pro validity
+  useEffect(() => {
+    if (!isPro) return;
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isPro]);
+
+  const subRemaining = getSubscriptionRemainingTime(planExpiresAt);
 
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const notifMenuRef = useRef<HTMLDivElement>(null);
@@ -139,11 +153,11 @@ export const Navbar: React.FC = () => {
               {isPro ? (
                 <div
                   onClick={openSubscriptionModal}
-                  className="cursor-pointer flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-xs font-extrabold hover:scale-105 transition-transform"
-                  title="Pro Subscription Active"
+                  className="cursor-pointer flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-xs font-extrabold hover:scale-105 transition-transform border border-indigo-500/30"
+                  title={`Pro Active until ${planExpiresAt ? new Date(planExpiresAt).toLocaleString() : 'Continuous'}. Click to extend or view timer.`}
                 >
-                  <Crown className="w-3.5 h-3.5 text-amber-500" />
-                  <span>✨ Pro Active</span>
+                  <Crown className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                  <span>✨ Pro: {subRemaining.shortText}</span>
                 </div>
               ) : (
                 <div
@@ -409,7 +423,7 @@ export const Navbar: React.FC = () => {
                 }}
                 leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
               >
-                Recharge Pro (Starting ₹9)
+                {isPro ? `✨ Pro Active: ${subRemaining.shortText} (Extend)` : 'Recharge Pro (Starting ₹9)'}
               </Button>
             </div>
           </div>

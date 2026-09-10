@@ -1,7 +1,18 @@
 import axios from 'axios';
 import { SpeechReport, PracticeSession, Topic, Achievement, DailyChallenge, AppNotification, LeaderboardUser } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1';
+const getApiBaseUrl = (): string => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== 'undefined') {
+    // Relative path ensures mobile devices on Wi-Fi/LAN route correctly through the server proxy
+    return '/api/v1';
+  }
+  return 'http://localhost:5000/api/v1';
+};
+
+const API_BASE = getApiBaseUrl();
 
 export const apiClient = axios.create({
   baseURL: API_BASE,

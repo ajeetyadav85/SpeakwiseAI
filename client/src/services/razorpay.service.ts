@@ -95,6 +95,8 @@ export class RazorpayService {
     });
   }
 
+  public static lastPrefetchError: string | null = null;
+
   /**
    * Pre-fetches order details in the background so that rzp.open() can be called
    * IMMEDIATELY and SYNCHRONOUSLY within the user's click gesture on mobile browsers.
@@ -111,13 +113,26 @@ export class RazorpayService {
 
     const promise = (async () => {
       try {
+        RazorpayService.lastPrefetchError = null;
         const amountInPaise = plan.priceInr * 100;
-        const orderRes = await apiClient.post('/create-order', {
+        const payload = {
           planId: plan.id,
           amount: amountInPaise,
           currency: 'INR',
           receipt: `rcpt_${plan.id.toLowerCase()}_${Date.now().toString().slice(-8)}`,
-        });
+        };
+
+        let orderRes: any;
+        try {
+          orderRes = await apiClient.post('/create-order', payload);
+        } catch (firstErr: any) {
+          console.warn('[RAZORPAY PREFETCH] /create-order failed, trying /subscription/create-order', firstErr?.message);
+          try {
+            orderRes = await apiClient.post('/subscription/create-order', payload);
+          } catch (secondErr: any) {
+            throw firstErr;
+          }
+        }
 
         const orderData = orderRes.data?.data || orderRes.data || {};
         const orderId = orderData.order_id || orderData.orderId || orderData.id;
@@ -127,7 +142,10 @@ export class RazorpayService {
           (import.meta as any).env?.VITE_RAZORPAY_KEY_ID ||
           'rzp_live_TaDSoq9X70XrEX';
 
-        if (!orderId) return null;
+        if (!orderId) {
+          RazorpayService.lastPrefetchError = orderRes.data?.error || 'No order ID returned by server';
+          return null;
+        }
 
         const prefetched: PrefetchedOrder = {
           planId: plan.id,
@@ -142,8 +160,14 @@ export class RazorpayService {
           timestamp: Date.now(),
         });
         return prefetched;
-      } catch (e) {
-        console.warn(`[RAZORPAY PREFETCH] Failed to prefetch order for plan ${plan.id}`, e);
+      } catch (e: any) {
+        const errorMsg =
+          e.response?.data?.error ||
+          e.response?.data?.message ||
+          e.message ||
+          'Failed to communicate with payment backend';
+        console.error(`[RAZORPAY PREFETCH ERROR] Plan: ${plan.id}`, errorMsg, e);
+        RazorpayService.lastPrefetchError = errorMsg;
         return null;
       } finally {
         this.inFlightOrderPromises.delete(plan.id);
@@ -324,7 +348,10 @@ export class RazorpayService {
       if (!order) {
         return {
           success: false,
-          error: 'Failed to obtain an order ID from the payment server.',
+          error:
+            this.lastPrefetchError
+              ? `Payment server error: ${this.lastPrefetchError}`
+              : 'Failed to obtain an order ID from the payment server. Please check your network connection.',
         };
       }
 

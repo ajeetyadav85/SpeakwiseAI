@@ -47,6 +47,9 @@ app.use(
       }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-id', 'x-razorpay-signature', 'x-requested-with'],
+    exposedHeaders: ['set-cookie'],
   })
 );
 app.use(compression());

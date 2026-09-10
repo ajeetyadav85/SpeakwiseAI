@@ -44,8 +44,17 @@ export const SubscriptionModal: React.FC = () => {
     return () => clearInterval(interval);
   }, [subscriptionModalOpen]);
 
+  // Pre-fetch Razorpay order and ensure SDK is ready immediately when modal opens or plan changes.
+  // This completely eliminates the async gap on mobile browsers!
+  useEffect(() => {
+    if (!subscriptionModalOpen) return;
+    RazorpayService.loadRazorpayScript();
+    RazorpayService.prefetchSubscriptionOrder(selectedPlan);
+  }, [subscriptionModalOpen, selectedPlan.id]);
+
   if (!subscriptionModalOpen) return null;
 
+  const isWebView = RazorpayService.isMobileWebView();
   const currentPlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId) || SUBSCRIPTION_PLANS[2];
   const remaining = getSubscriptionRemainingTime(planExpiresAt);
 
@@ -64,29 +73,37 @@ export const SubscriptionModal: React.FC = () => {
   const previewNewExpiry = calculateStackedExpiry(selectedPlan.durationHours);
 
   // Directly launch official Razorpay checkout (PhonePe, GPay, Paytm, Cards, NetBanking)
-  const handleProceedToPay = async () => {
+  // SYNCHRONOUS INVOCATION: rzp.open() is called immediately in user gesture without any preceding await!
+  const handleProceedToPay = () => {
     setIsLoading(true);
     setErrorMessage(null);
-    const result = await RazorpayService.processSubscriptionPayment(selectedPlan);
-    setIsLoading(false);
-    if (result.success) {
-      setSuccess(true);
-      const serverExpiresAt = result.data?.expiresAt;
-      upgradeToPro(selectedPlan.id, selectedPlan.durationHours, serverExpiresAt);
-      if (user) {
-        useAuthStore.getState().updateUser({
-          role: 'PRO_USER',
-          subscriptionPlan: selectedPlan.id,
-          subscriptionExpiresAt: serverExpiresAt,
-        });
-      }
-      setTimeout(() => {
-        setSuccess(false);
-        closeSubscriptionModal();
-      }, 1500);
-    } else if (result.error) {
-      setErrorMessage(result.error);
-    }
+
+    RazorpayService.processSubscriptionPayment(selectedPlan)
+      .then((result) => {
+        setIsLoading(false);
+        if (result.success) {
+          setSuccess(true);
+          const serverExpiresAt = result.data?.expiresAt;
+          upgradeToPro(selectedPlan.id, selectedPlan.durationHours, serverExpiresAt);
+          if (user) {
+            useAuthStore.getState().updateUser({
+              role: 'PRO_USER',
+              subscriptionPlan: selectedPlan.id,
+              subscriptionExpiresAt: serverExpiresAt,
+            });
+          }
+          setTimeout(() => {
+            setSuccess(false);
+            closeSubscriptionModal();
+          }, 1500);
+        } else if (result.error && result.error !== 'Payment was cancelled by user.') {
+          setErrorMessage(result.error);
+        }
+      })
+      .catch((err: any) => {
+        setIsLoading(false);
+        setErrorMessage(err?.message || 'Failed to initiate payment.');
+      });
   };
 
   return (
@@ -114,6 +131,19 @@ export const SubscriptionModal: React.FC = () => {
             Select an affordable recharge pass and pay securely with PhonePe, UPI, Cards, or NetBanking.
           </p>
         </div>
+
+        {/* In-App Browser Warning (Instagram, LinkedIn, WhatsApp) */}
+        {isWebView && (
+          <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-medium space-y-1">
+            <div className="font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+              <span>⚠️ In-App Browser Detected</span>
+            </div>
+            <p className="text-[11px] leading-relaxed">
+              In-app browsers (Instagram, LinkedIn, WhatsApp) frequently block UPI apps (PhonePe, GPay).
+              If payment does not open, tap <strong>⋮</strong> or <strong>⋯</strong> in the top-right corner and select <strong>&quot;Open in Chrome&quot;</strong> or <strong>&quot;Open in Safari&quot;</strong>.
+            </p>
+          </div>
+        )}
 
         {/* Active Pro Membership Status (When already subscribed) */}
         {isPro && (

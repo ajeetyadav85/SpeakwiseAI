@@ -16,6 +16,10 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    const guestId = localStorage.getItem('speakwise_guest_id');
+    if (guestId) {
+      config.headers['x-guest-id'] = guestId;
+    }
     return config;
   },
   (error) => Promise.reject(error)

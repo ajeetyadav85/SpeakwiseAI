@@ -9,6 +9,14 @@
     "build": "cd client && npm install && npm run build",
     "start": "npm --prefix client run preview"
   },
+  "allowScripts": {
+    "esbuild": true,
+    "@firebase/util": true,
+    "protobufjs": true,
+    "esbuild@0.21.5": true,
+    "@firebase/util@1.15.2": true,
+    "protobufjs@7.6.5": true
+  },
   "devDependencies": {
     "concurrently": "^8.2.2"
   },

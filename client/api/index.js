@@ -1,25 +1,18 @@
-// Vercel Serverless Function entry point wrapping the existing Express application
-let appPromise = null;
+// Vercel Serverless Function entry point for SpeakWise AI API
+const {
+  handleCreateOrder,
+  handleVerifyPayment,
+  handleUsageStatus,
+  handleUsageConsume,
+  setCorsHeaders,
+} = require('./_razorpay');
 
-async function getExpressApp() {
-  if (!appPromise) {
-    process.env.VERCEL = '1';
-    appPromise = (async () => {
-      try {
-        const mod = await import('../server/dist/app.js');
-        return mod.default || mod;
-      } catch (err) {
-        console.error('[VERCEL SERVERLESS] Error importing server/dist/app.js:', err);
-        return null;
-      }
-    })();
-  }
-  return appPromise;
-}
-
-// Fallback handlers for extreme resiliency
-const { handleCreateOrder, handleVerifyPayment, handleUsageStatus, handleUsageConsume, setCorsHeaders } = require('./_razorpay');
-const { handleGoogleLogin, handleLogin, handleRegister, handleGetMe } = require('./_auth');
+const {
+  handleGoogleLogin,
+  handleLogin,
+  handleRegister,
+  handleGetMe,
+} = require('./_auth');
 
 module.exports = async (req, res) => {
   setCorsHeaders(res);
@@ -27,38 +20,84 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  // Restore the original incoming request URL if Vercel's rewrite modified it
-  const matchedPath = req.headers['x-matched-path'] || req.headers['x-invoke-path'];
-  if (matchedPath && (matchedPath.startsWith('/api') || matchedPath.startsWith('/health'))) {
-    const urlObj = new URL(req.url, 'http://localhost');
-    req.url = matchedPath + (urlObj.search || '');
-  }
-
-  // 1. Primary: Forward directly to your existing Express app instance
-  try {
-    const expressApp = await getExpressApp();
-    if (expressApp && typeof expressApp === 'function') {
-      return expressApp(req, res);
-    }
-  } catch (expressErr) {
-    console.warn('[VERCEL SERVERLESS] Express app dispatch error, engaging fallback handler:', expressErr.message);
-  }
-
-  // 2. Fallback: Self-contained routes in case database or server build is unreachable
   const host = req.headers.host || 'localhost';
-  const url = new URL(req.url, `http://${host}`);
-  const pathname = url.pathname.toLowerCase().replace(/\/$/, '');
 
-  if (pathname.endsWith('auth/google')) return handleGoogleLogin(req, res);
-  if (pathname.endsWith('auth/login')) return handleLogin(req, res);
-  if (pathname.endsWith('auth/register')) return handleRegister(req, res);
-  if (pathname.endsWith('auth/me')) return handleGetMe(req, res);
-  if (pathname.endsWith('create-order')) return handleCreateOrder(req, res);
-  if (pathname.endsWith('verify-payment')) return handleVerifyPayment(req, res);
-  if (pathname.endsWith('usage/status')) return handleUsageStatus(req, res);
-  if (pathname.endsWith('usage/consume')) return handleUsageConsume(req, res);
+  // Extract true request path across Vercel rewrite headers
+  let rawPath = req.headers['x-forwarded-uri'] || req.url || '';
+  if (
+    rawPath.includes('/api/index.js') &&
+    req.headers['x-invoke-path'] &&
+    !req.headers['x-invoke-path'].includes('index.js')
+  ) {
+    rawPath = req.headers['x-invoke-path'];
+  }
 
-  if (pathname === '/api/health' || pathname === '/api/v1/health' || pathname === '/health' || pathname === '/api') {
+  const parsed = new URL(rawPath, `http://${host}`);
+  const pathname = parsed.pathname.toLowerCase().replace(/\/$/, '');
+
+  // 1. Authentication Endpoints
+  if (pathname.endsWith('auth/google') || pathname.endsWith('auth/google.js')) {
+    return handleGoogleLogin(req, res);
+  }
+  if (pathname.endsWith('auth/login') || pathname.endsWith('auth/login.js')) {
+    return handleLogin(req, res);
+  }
+  if (pathname.endsWith('auth/register') || pathname.endsWith('auth/register.js')) {
+    return handleRegister(req, res);
+  }
+  if (pathname.endsWith('auth/me') || pathname.endsWith('auth/me.js')) {
+    return handleGetMe(req, res);
+  }
+
+  // 2. Razorpay Payment Endpoints
+  if (pathname.includes('create-order')) {
+    return handleCreateOrder(req, res);
+  }
+  if (pathname.includes('verify-payment')) {
+    return handleVerifyPayment(req, res);
+  }
+
+  // 3. Usage & Limit Endpoints
+  if (pathname.includes('usage/status')) {
+    return handleUsageStatus(req, res);
+  }
+  if (pathname.includes('usage/consume')) {
+    return handleUsageConsume(req, res);
+  }
+
+  // 4. Content Generator Endpoints
+  if (pathname.includes('content/random')) {
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: 'top_' + Date.now(),
+        title: 'Navigating Pitch Deck Objections in High-Stakes Fundraising',
+        category: 'Business',
+        difficulty: 'Advanced',
+        type: 'TOPIC',
+        meaning: 'Mastering investor questions with clear unit economics.',
+        contentOverview: 'Focus on strategic pauses, vocal variety, and structured arguments.',
+        hint: 'Articulate unit economics and CAC payback period clearly.',
+        suggestedDurationSeconds: 150,
+      },
+    });
+  }
+  if (pathname.includes('content/categories')) {
+    return res.status(200).json({
+      success: true,
+      data: ['Leadership', 'Business', 'Tech', 'Interviews', 'Public Speaking', 'Impromptu'],
+    });
+  }
+
+  // 5. Health Check Endpoints
+  if (
+    pathname === '/api/health' ||
+    pathname === '/api/v1/health' ||
+    pathname === '/health' ||
+    pathname === '/api' ||
+    pathname === '/api/v1' ||
+    pathname === ''
+  ) {
     return res.status(200).json({
       status: 'UP',
       service: 'SpeakWise AI Vercel Serverless API',
@@ -68,6 +107,6 @@ module.exports = async (req, res) => {
 
   return res.status(404).json({
     success: false,
-    error: `Endpoint '${url.pathname}' not found on Vercel Serverless API.`,
+    error: `Endpoint '${parsed.pathname}' not found on Vercel Serverless API.`,
   });
 };

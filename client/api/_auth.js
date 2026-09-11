@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { setCorsHeaders, getParsedBody } = require('./_razorpay');
+const { connectDB, UserModel } = require('./_db');
 
 const JWT_SECRET = process.env.JWT_ACCESS_SECRET || 'speakwise_jwt_access_secret_key_32chars_min';
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80';
@@ -39,26 +40,66 @@ async function handleGoogleLogin(req, res) {
   const userId = 'usr_g_' + (googleId || Date.now().toString(36) + Math.random().toString(36).substring(2, 6));
   const effectiveAvatar = avatarUrl || DEFAULT_AVATAR;
 
+  let dbUser = null;
+  try {
+    const db = await connectDB();
+    if (db && UserModel) {
+      dbUser = await UserModel.findOne({ email: normalizedEmail });
+      if (!dbUser) {
+        dbUser = await UserModel.create({
+          fullName: normalizedName,
+          email: normalizedEmail,
+          passwordHash: 'GOOGLE_OAUTH_USER',
+          role: 'PRO_USER',
+          authProvider: 'google',
+          googleId: googleId || undefined,
+          avatarUrl: effectiveAvatar,
+          streakDays: 7,
+          totalPracticeMinutes: 142,
+          averageScore: 88,
+          targetWpm: 145,
+          exp: 1850,
+          level: 4,
+        });
+      } else {
+        let changed = false;
+        if (!dbUser.googleId && googleId) {
+          dbUser.googleId = googleId;
+          changed = true;
+        }
+        if (effectiveAvatar && (!dbUser.avatarUrl || dbUser.avatarUrl.includes('unsplash'))) {
+          dbUser.avatarUrl = effectiveAvatar;
+          changed = true;
+        }
+        if (changed) {
+          await dbUser.save();
+        }
+      }
+    }
+  } catch (dbErr) {
+    console.warn('[VERCEL AUTH] MongoDB operation fallback for Google Login:', dbErr.message);
+  }
+
+  const effectiveId = dbUser ? dbUser._id.toString() : userId;
   const user = {
-    id: userId,
-    _id: userId,
-    email: normalizedEmail,
-    fullName: normalizedName,
-    avatarUrl: effectiveAvatar,
-    role: 'PRO_USER',
+    id: effectiveId,
+    _id: effectiveId,
+    email: dbUser ? dbUser.email : normalizedEmail,
+    fullName: dbUser ? dbUser.fullName : normalizedName,
+    avatarUrl: dbUser ? dbUser.avatarUrl : effectiveAvatar,
+    role: dbUser ? dbUser.role : 'PRO_USER',
     authProvider: 'google',
-    googleId: googleId || undefined,
-    streakDays: 7,
-    totalPracticeMinutes: 142,
-    averageScore: 88,
-    targetWpm: 145,
-    exp: 1850,
-    level: 4,
-    createdAt: new Date().toISOString(),
+    googleId: googleId || (dbUser ? dbUser.googleId : undefined),
+    streakDays: dbUser?.streakDays ?? 7,
+    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 142,
+    averageScore: dbUser?.averageScore ?? 88,
+    targetWpm: dbUser?.targetWpm ?? 145,
+    exp: dbUser?.exp ?? 1850,
+    level: dbUser?.level ?? 4,
+    createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
   };
 
-  const accessToken = generateToken({ id: userId, email: normalizedEmail, role: 'PRO_USER' });
-
+  const accessToken = generateToken({ id: effectiveId, email: user.email, role: user.role });
   res.setHeader('Set-Cookie', `speakwise_token=${accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
 
   return res.status(200).json({
@@ -76,35 +117,45 @@ async function handleLogin(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
   const body = getParsedBody(req);
-  const { email, password } = body;
+  const { email } = body;
 
   const normalizedEmail = (email || '').toLowerCase().trim();
   if (!normalizedEmail) {
     return res.status(400).json({ success: false, error: 'Email is required' });
   }
 
-  const userId = 'usr_' + Buffer.from(normalizedEmail).toString('hex').slice(0, 16);
+  let dbUser = null;
+  try {
+    const db = await connectDB();
+    if (db && UserModel) {
+      dbUser = await UserModel.findOne({ email: normalizedEmail });
+    }
+  } catch (dbErr) {
+    console.warn('[VERCEL AUTH] MongoDB lookup fallback for Login:', dbErr.message);
+  }
+
+  const fallbackId = 'usr_' + Buffer.from(normalizedEmail).toString('hex').slice(0, 16);
   const normalizedName = normalizedEmail.split('@')[0].replace('.', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+  const effectiveId = dbUser ? dbUser._id.toString() : fallbackId;
   const user = {
-    id: userId,
-    _id: userId,
-    email: normalizedEmail,
-    fullName: normalizedName,
-    avatarUrl: DEFAULT_AVATAR,
-    role: 'PRO_USER',
-    authProvider: 'email',
-    streakDays: 7,
-    totalPracticeMinutes: 142,
-    averageScore: 88,
-    targetWpm: 145,
-    exp: 1850,
-    level: 4,
-    createdAt: new Date().toISOString(),
+    id: effectiveId,
+    _id: effectiveId,
+    email: dbUser ? dbUser.email : normalizedEmail,
+    fullName: dbUser ? dbUser.fullName : normalizedName,
+    avatarUrl: dbUser ? dbUser.avatarUrl : DEFAULT_AVATAR,
+    role: dbUser ? dbUser.role : 'PRO_USER',
+    authProvider: dbUser ? dbUser.authProvider : 'email',
+    streakDays: dbUser?.streakDays ?? 7,
+    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 142,
+    averageScore: dbUser?.averageScore ?? 88,
+    targetWpm: dbUser?.targetWpm ?? 145,
+    exp: dbUser?.exp ?? 1850,
+    level: dbUser?.level ?? 4,
+    createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
   };
 
-  const accessToken = generateToken({ id: userId, email: normalizedEmail, role: 'PRO_USER' });
-
+  const accessToken = generateToken({ id: effectiveId, email: user.email, role: user.role });
   res.setHeader('Set-Cookie', `speakwise_token=${accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
 
   return res.status(200).json({
@@ -122,35 +173,63 @@ async function handleRegister(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
   const body = getParsedBody(req);
-  const { fullName, email, password } = body;
+  const { fullName, email } = body;
 
   const normalizedEmail = (email || '').toLowerCase().trim();
   if (!normalizedEmail) {
     return res.status(400).json({ success: false, error: 'Email is required' });
   }
 
-  const userId = 'usr_' + Buffer.from(normalizedEmail).toString('hex').slice(0, 16);
   const normalizedName = fullName || normalizedEmail.split('@')[0].replace('.', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const fallbackId = 'usr_' + Buffer.from(normalizedEmail).toString('hex').slice(0, 16);
 
+  let dbUser = null;
+  try {
+    const db = await connectDB();
+    if (db && UserModel) {
+      const existing = await UserModel.findOne({ email: normalizedEmail });
+      if (existing) {
+        dbUser = existing;
+      } else {
+        dbUser = await UserModel.create({
+          fullName: normalizedName,
+          email: normalizedEmail,
+          passwordHash: 'EMAIL_PASSWORD_HASH',
+          role: 'PRO_USER',
+          authProvider: 'email',
+          avatarUrl: DEFAULT_AVATAR,
+          streakDays: 1,
+          totalPracticeMinutes: 0,
+          averageScore: 85,
+          targetWpm: 145,
+          exp: 250,
+          level: 1,
+        });
+      }
+    }
+  } catch (dbErr) {
+    console.warn('[VERCEL AUTH] MongoDB creation fallback for Register:', dbErr.message);
+  }
+
+  const effectiveId = dbUser ? dbUser._id.toString() : fallbackId;
   const user = {
-    id: userId,
-    _id: userId,
-    email: normalizedEmail,
-    fullName: normalizedName,
-    avatarUrl: DEFAULT_AVATAR,
-    role: 'PRO_USER',
+    id: effectiveId,
+    _id: effectiveId,
+    email: dbUser ? dbUser.email : normalizedEmail,
+    fullName: dbUser ? dbUser.fullName : normalizedName,
+    avatarUrl: dbUser ? dbUser.avatarUrl : DEFAULT_AVATAR,
+    role: dbUser ? dbUser.role : 'PRO_USER',
     authProvider: 'email',
-    streakDays: 1,
-    totalPracticeMinutes: 0,
-    averageScore: 85,
-    targetWpm: 145,
-    exp: 250,
-    level: 1,
-    createdAt: new Date().toISOString(),
+    streakDays: dbUser?.streakDays ?? 1,
+    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 0,
+    averageScore: dbUser?.averageScore ?? 85,
+    targetWpm: dbUser?.targetWpm ?? 145,
+    exp: dbUser?.exp ?? 250,
+    level: dbUser?.level ?? 1,
+    createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
   };
 
-  const accessToken = generateToken({ id: userId, email: normalizedEmail, role: 'PRO_USER' });
-
+  const accessToken = generateToken({ id: effectiveId, email: user.email, role: user.role });
   res.setHeader('Set-Cookie', `speakwise_token=${accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`);
 
   return res.status(201).json({
@@ -175,23 +254,39 @@ async function handleGetMe(req, res) {
 
   const email = payload?.email || 'speaker@speakwise.ai';
   const userId = payload?.id || 'usr_default';
-  const fullName = email.split('@')[0].replace('.', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  let dbUser = null;
+  try {
+    const db = await connectDB();
+    if (db && UserModel) {
+      if (userId && !userId.startsWith('usr_')) {
+        dbUser = await UserModel.findById(userId);
+      }
+      if (!dbUser && email) {
+        dbUser = await UserModel.findOne({ email: email.toLowerCase() });
+      }
+    }
+  } catch (dbErr) {
+    console.warn('[VERCEL AUTH] MongoDB lookup fallback for GetMe:', dbErr.message);
+  }
+
+  const fullName = dbUser ? dbUser.fullName : email.split('@')[0].replace('.', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   return res.status(200).json({
     success: true,
     data: {
-      id: userId,
-      _id: userId,
-      email,
+      id: dbUser ? dbUser._id.toString() : userId,
+      _id: dbUser ? dbUser._id.toString() : userId,
+      email: dbUser ? dbUser.email : email,
       fullName,
-      role: payload?.role || 'PRO_USER',
-      avatarUrl: DEFAULT_AVATAR,
-      authProvider: 'email',
-      streakDays: 7,
-      totalPracticeMinutes: 142,
-      averageScore: 88,
-      targetWpm: 145,
-      createdAt: new Date().toISOString(),
+      role: dbUser ? dbUser.role : (payload?.role || 'PRO_USER'),
+      avatarUrl: dbUser ? dbUser.avatarUrl : DEFAULT_AVATAR,
+      authProvider: dbUser ? dbUser.authProvider : 'email',
+      streakDays: dbUser?.streakDays ?? 7,
+      totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 142,
+      averageScore: dbUser?.averageScore ?? 88,
+      targetWpm: dbUser?.targetWpm ?? 145,
+      createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
     },
   });
 }

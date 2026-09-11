@@ -21,6 +21,7 @@
     "concurrently": "^8.2.2"
   },
   "dependencies": {
+    "mongoose": "^8.7.2",
     "razorpay": "^2.9.8"
   }
 }

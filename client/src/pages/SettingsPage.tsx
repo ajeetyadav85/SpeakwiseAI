@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../stores/useAuthStore';
-import { User, Sliders, CreditCard, Save } from 'lucide-react';
+import { useSubscriptionStore } from '../stores/useSubscriptionStore';
+import { User, Sliders, CreditCard, Save, Crown, Zap } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 
 export const SettingsPage: React.FC = () => {
   const { user, updateUser } = useAuthStore();
+  const { isPro, planExpiresAt, openSubscriptionModal } = useSubscriptionStore();
   const [fullName, setFullName] = useState(user?.fullName || '');
   const [targetWpm, setTargetWpm] = useState(user?.targetWpm || 145);
   const [isSaved, setIsSaved] = useState(false);
@@ -82,16 +84,33 @@ export const SettingsPage: React.FC = () => {
         {/* Plan & Billing */}
         <Card className="space-y-4 neu-flat p-6">
           <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2 border-b border-white/20 dark:border-white/5 pb-3">
-            <CreditCard className="w-5 h-5 text-emerald-500" />
+            <CreditCard className="w-5 h-5 text-indigo-500" />
             <span>Subscription & Workspace Plan</span>
           </h3>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <div className="font-extrabold text-slate-900 dark:text-white text-base">Pro Member Tier</div>
-              <div className="text-xs text-slate-500 font-medium mt-0.5">Unlimited rehearsal sessions, sub-300ms live ASR & LLM coaching.</div>
+              <div className="font-extrabold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                {isPro ? 'SpeakWise Pro Membership' : 'Free Trial Tier'}
+                {isPro ? <Badge variant="emerald">Active</Badge> : <Badge variant="amber">Free</Badge>}
+              </div>
+              <div className="text-xs text-slate-500 font-medium mt-1">
+                {isPro
+                  ? `Unlimited speech rehearsals & live coaching. Valid until ${planExpiresAt ? new Date(planExpiresAt).toLocaleDateString() : 'Continuous'}.`
+                  : 'Limited free speech practice attempts. Upgrade to Pro for unlimited rehearsals and PDF exports.'}
+              </div>
             </div>
-            <Badge variant="emerald">Active</Badge>
+
+            <Button
+              type="button"
+              variant={isPro ? 'outline' : 'primary'}
+              size="sm"
+              onClick={openSubscriptionModal}
+              leftIcon={isPro ? <Crown className="w-4 h-4 text-amber-500" /> : <Zap className="w-4 h-4 text-amber-300" />}
+              className="rounded-full flex-shrink-0"
+            >
+              {isPro ? 'Manage Plan' : 'Upgrade to Pro — ₹9 for 1 Day'}
+            </Button>
           </div>
         </Card>
 

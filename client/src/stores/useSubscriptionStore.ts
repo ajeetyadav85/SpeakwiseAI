@@ -71,6 +71,18 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanOption[] = [
   },
 ];
 
+// Special trial plan for first-time new users only
+export const TRIAL_OFFER_PLAN: SubscriptionPlanOption = {
+  id: 'TRIAL_7_DAYS',
+  name: '7-Day Pro Trial',
+  durationLabel: '7 Days',
+  validityText: 'Valid for 7 Days from payment',
+  durationHours: 168,
+  priceInr: 1,
+  badge: '🎉 New User Offer',
+  description: 'Full SpeakWise Pro access for 7 days at just ₹1 (First-time users only)',
+};
+
 interface UsageStatusResponse {
   planType: PlanType;
   attemptsUsed: number;
@@ -81,6 +93,9 @@ interface UsageStatusResponse {
   message?: string;
   planId?: SubscriptionPlanId;
   expiresAt?: string;
+  isTrialEligible?: boolean;
+  trialEndsAt?: string;
+  planStartsAt?: string;
 }
 
 interface SubscriptionState {
@@ -89,6 +104,9 @@ interface SubscriptionState {
   maxAttempts: number;
   attemptsUsed: number;
   isPro: boolean;
+  isTrialEligible: boolean;
+  trialEndsAt: string | null;
+  planStartsAt: string | null;
   canProceed: boolean;
   message: string;
   activePlanId: SubscriptionPlanId | null;
@@ -97,6 +115,7 @@ interface SubscriptionState {
   upgradeLimitModalOpen: boolean;
 
   // Actions
+  resetSubscription: () => void;
   fetchUsageStatus: () => Promise<UsageStatusResponse>;
   decrementAttempts: () => Promise<boolean>;
   upgradeToPro: (planId?: SubscriptionPlanId, durationHours?: number, explicitExpiresAt?: string) => void;
@@ -106,89 +125,97 @@ interface SubscriptionState {
   closeUpgradeLimitModal: () => void;
 }
 
-const getInitialGuestAttempts = (): number => {
-  try {
-    const saved = localStorage.getItem('speakwise_guest_attempts');
-    if (saved) {
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed)) return Math.min(3, parsed);
-    }
-  } catch (e) {}
-  return 0;
-};
-
-const getSavedSubscriptionStatus = (): { isPro: boolean; planId: SubscriptionPlanId | null; expiresAt: string | null } => {
-  try {
-    const expiryStr = localStorage.getItem('speakwise_sub_expiry');
-    const planId = (localStorage.getItem('speakwise_sub_plan') as SubscriptionPlanId) || null;
-    if (expiryStr) {
-      const expiry = new Date(expiryStr);
-      if (expiry.getTime() > Date.now()) {
-        return { isPro: true, planId, expiresAt: expiryStr };
-      } else {
-        localStorage.removeItem('speakwise_sub_expiry');
-        localStorage.removeItem('speakwise_sub_plan');
-      }
-    }
-  } catch (e) {}
-  return { isPro: false, planId: null, expiresAt: null };
-};
-
-const initialGuestUsed = getInitialGuestAttempts();
-const initialSub = getSavedSubscriptionStatus();
+// Clean up any stale legacy subscription keys from device localStorage immediately
+try {
+  localStorage.removeItem('speakwise_sub_expiry');
+  localStorage.removeItem('speakwise_sub_plan');
+  localStorage.removeItem('speakwise_guest_attempts');
+} catch (e) {}
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
-  planType: initialSub.isPro ? 'PRO' : 'GUEST',
-  freeAttemptsLeft: initialSub.isPro ? 9999 : Math.max(0, 3 - initialGuestUsed),
-  maxAttempts: initialSub.isPro ? 9999 : 3,
-  attemptsUsed: initialGuestUsed,
-  isPro: initialSub.isPro,
-  canProceed: initialSub.isPro || initialGuestUsed < 3,
-  message: initialSub.isPro ? 'Pro Active' : `Free uses remaining: ${Math.max(0, 3 - initialGuestUsed)}/3`,
-  activePlanId: initialSub.planId,
-  planExpiresAt: initialSub.expiresAt,
+  planType: 'GUEST',
+  freeAttemptsLeft: 3,
+  maxAttempts: 3,
+  attemptsUsed: 0,
+  isPro: false,
+  isTrialEligible: true,
+  trialEndsAt: null,
+  planStartsAt: null,
+  canProceed: true,
+  message: 'Free uses remaining: 3/3',
+  activePlanId: null,
+  planExpiresAt: null,
   subscriptionModalOpen: false,
   upgradeLimitModalOpen: false,
+
+  resetSubscription: () => {
+    try {
+      localStorage.removeItem('speakwise_sub_expiry');
+      localStorage.removeItem('speakwise_sub_plan');
+      localStorage.removeItem('speakwise_guest_attempts');
+    } catch (e) {}
+    set({
+      planType: 'GUEST',
+      freeAttemptsLeft: 3,
+      maxAttempts: 3,
+      attemptsUsed: 0,
+      isPro: false,
+      isTrialEligible: true,
+      trialEndsAt: null,
+      planStartsAt: null,
+      canProceed: true,
+      message: 'Free uses remaining: 3/3',
+      activePlanId: null,
+      planExpiresAt: null,
+      subscriptionModalOpen: false,
+      upgradeLimitModalOpen: false,
+    });
+  },
 
   fetchUsageStatus: async () => {
     try {
       const res = await apiClient.get('/usage/status');
       const data: UsageStatusResponse = res.data.data;
-      
-      const isStillPro = data.isPro || (get().planExpiresAt ? new Date(get().planExpiresAt!).getTime() > Date.now() : false);
+      const isPro = Boolean(data.isPro);
+      const isTrialEligible = data.isTrialEligible !== undefined ? Boolean(data.isTrialEligible) : !isPro;
 
       set({
-        planType: isStillPro ? 'PRO' : data.planType,
-        freeAttemptsLeft: isStillPro ? 9999 : data.attemptsLeft,
-        maxAttempts: isStillPro ? 9999 : data.maxAttempts,
-        attemptsUsed: data.attemptsUsed,
-        isPro: isStillPro,
-        canProceed: isStillPro || data.canProceed,
-        message: data.message || `Remaining: ${data.attemptsLeft}/${data.maxAttempts}`,
-        activePlanId: data.planId || get().activePlanId,
-        planExpiresAt: data.expiresAt || get().planExpiresAt,
+        planType: isPro ? 'PRO' : (data.planType || 'GUEST'),
+        freeAttemptsLeft: isPro ? 9999 : (data.attemptsLeft ?? 3),
+        maxAttempts: isPro ? 9999 : (data.maxAttempts ?? 3),
+        attemptsUsed: data.attemptsUsed || 0,
+        isPro,
+        isTrialEligible,
+        trialEndsAt: data.trialEndsAt || null,
+        planStartsAt: data.planStartsAt || null,
+        canProceed: isPro || Boolean(data.canProceed),
+        message: data.message || (isPro ? 'Pro Active' : `Remaining: ${data.attemptsLeft ?? 3}/${data.maxAttempts ?? 3}`),
+        activePlanId: isPro ? (data.planId || null) : null,
+        planExpiresAt: isPro ? (data.expiresAt || null) : null,
       });
-      return { ...data, isPro: isStillPro, canProceed: isStillPro || data.canProceed };
+      return { ...data, isPro, isTrialEligible, canProceed: isPro || Boolean(data.canProceed) };
     } catch (err) {
-      // Fallback local memory state
-      const { isPro, planType, activePlanId, planExpiresAt } = get();
-      const used = getInitialGuestAttempts();
-      const left = Math.max(0, 3 - used);
-      const canProc = isPro || left > 0;
+      // Offline fallback: never assume Pro without server confirmation
       set({
-        freeAttemptsLeft: isPro ? 9999 : left,
-        attemptsUsed: used,
-        canProceed: canProc,
+        planType: 'GUEST',
+        freeAttemptsLeft: 3,
+        attemptsUsed: 0,
+        canProceed: true,
+        isPro: false,
+        isTrialEligible: true,
+        trialEndsAt: null,
+        planStartsAt: null,
+        activePlanId: null,
+        planExpiresAt: null,
       });
       return {
-        planType,
-        attemptsUsed: used,
-        attemptsLeft: isPro ? 9999 : left,
-        maxAttempts: isPro ? 9999 : planType === 'FREESTYLE' ? 10 : 3,
-        canProceed: canProc,
-        isPro,
-        planId: activePlanId || undefined,
-        expiresAt: planExpiresAt || undefined,
+        planType: 'GUEST',
+        attemptsUsed: 0,
+        attemptsLeft: 3,
+        maxAttempts: 3,
+        canProceed: true,
+        isPro: false,
+        isTrialEligible: true,
       };
     }
   },
@@ -200,17 +227,19 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     try {
       const res = await apiClient.post('/usage/consume');
       const data: UsageStatusResponse = res.data.data;
+      const isProResult = Boolean(data.isPro);
+
       set({
         planType: data.planType,
         freeAttemptsLeft: data.attemptsLeft,
         maxAttempts: data.maxAttempts,
         attemptsUsed: data.attemptsUsed,
-        isPro: data.isPro,
+        isPro: isProResult,
         canProceed: data.canProceed,
         message: data.message || `Remaining: ${data.attemptsLeft}/${data.maxAttempts}`,
       });
 
-      if (!data.canProceed) {
+      if (!data.canProceed && !isProResult) {
         set({ upgradeLimitModalOpen: true });
         return false;
       }
@@ -221,15 +250,10 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
         set({ freeAttemptsLeft: 0, canProceed: false, upgradeLimitModalOpen: true });
         return false;
       }
-      // Local fallback
       const current = get().freeAttemptsLeft;
       if (current > 0) {
         const next = current - 1;
-        const used = 3 - next;
-        try {
-          localStorage.setItem('speakwise_guest_attempts', used.toString());
-        } catch (e) {}
-        set({ freeAttemptsLeft: next, attemptsUsed: used, canProceed: next > 0 });
+        set({ freeAttemptsLeft: next, attemptsUsed: 3 - next, canProceed: next > 0 });
         if (next === 0) set({ upgradeLimitModalOpen: true });
         return true;
       }
@@ -248,22 +272,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     if (explicitExpiresAt && !isNaN(new Date(explicitExpiresAt).getTime())) {
       finalExpiresAt = explicitExpiresAt;
     } else {
-      // Stack onto current active expiry if still valid
-      const existingExpiresAt = get().planExpiresAt || localStorage.getItem('speakwise_sub_expiry');
-      let baseTimeMs = Date.now();
-      if (existingExpiresAt) {
-        const existingMs = new Date(existingExpiresAt).getTime();
-        if (existingMs > baseTimeMs) {
-          baseTimeMs = existingMs;
-        }
-      }
-      finalExpiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000).toISOString();
+      finalExpiresAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
     }
-
-    try {
-      localStorage.setItem('speakwise_sub_expiry', finalExpiresAt);
-      localStorage.setItem('speakwise_sub_plan', planId);
-    } catch (e) {}
 
     set({
       isPro: true,
@@ -278,6 +288,9 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       upgradeLimitModalOpen: false,
       message: 'Pro Active',
     });
+
+    // Re-verify fresh status against backend
+    get().fetchUsageStatus();
   },
 
   openSubscriptionModal: () => set({ subscriptionModalOpen: true, upgradeLimitModalOpen: false }),

@@ -19,6 +19,7 @@ const PLAN_DURATION_HOURS: Record<string, number> = {
 
 // Plan price in INR rupees
 const PLAN_PRICES_INR: Record<string, number> = {
+  'TRIAL_7_DAYS': 1,
   '1_DAY': 9,
   '1_WEEK': 49,
   '1_MONTH': 99,
@@ -59,7 +60,18 @@ export const createOrderController = async (req: Request, res: Response, next: N
     let amountInPaise: number;
     let planPriceInr: number;
 
-    if (amount !== undefined && amount !== null) {
+    if (planId === 'TRIAL_7_DAYS') {
+      const user = req.user?.id ? await UserModel.findById(req.user.id) : null;
+      if (user && (user.hasUsedTrialOffer || user.subscriptionPlan)) {
+        res.status(400).json({
+          success: false,
+          error: 'The ₹1 for 7 days trial offer is only valid once for first-time new users.',
+        });
+        return;
+      }
+      planPriceInr = 1;
+      amountInPaise = 100;
+    } else if (amount !== undefined && amount !== null) {
       amountInPaise = Number(amount);
       planPriceInr = Math.round(amountInPaise / 100);
     } else {
@@ -222,22 +234,73 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
       existingUser = await UserModel.findOne({ email: effectiveEmail.toLowerCase().trim() });
     }
 
-    if (existingUser?.subscriptionExpiresAt) {
-      const currentExpiryMs = new Date(existingUser.subscriptionExpiresAt).getTime();
-      if (currentExpiryMs > nowMs) {
-        // Stack the new duration on top of the remaining time!
-        baseTimeMs = currentExpiryMs;
-        logger.info(`[PAYMENT] ⏱️ Stacking subscription for user ${existingUser._id}: Existing expiry was ${new Date(currentExpiryMs).toISOString()}, adding ${durationHours}h -> New expiry: ${new Date(baseTimeMs + durationHours * 3600 * 1000).toISOString()}`);
+    let expiresAt: Date;
+    let finalPlanStartsAt: Date = paymentTimestamp;
+    let finalTrialEndsAt: Date | null = null;
+
+    if (planId === 'TRIAL_7_DAYS') {
+      const trialHours = 168;
+      finalTrialEndsAt = new Date(nowMs + trialHours * 3600 * 1000);
+      expiresAt = finalTrialEndsAt;
+
+      if (existingUser) {
+        existingUser.role = 'PRO_USER';
+        existingUser.hasUsedTrialOffer = true;
+        existingUser.trialEndsAt = finalTrialEndsAt;
+        existingUser.planStartsAt = paymentTimestamp;
+        existingUser.subscriptionPlan = 'TRIAL_7_DAYS';
+        existingUser.subscriptionExpiresAt = expiresAt;
+        await existingUser.save();
+        logger.info(`[PAYMENT] Activated ₹1 7-Day trial for user ${existingUser._id} until ${expiresAt.toISOString()}`);
       }
-    } else if (currentExpiresAt) {
-      const clientExpiryMs = new Date(currentExpiresAt).getTime();
-      if (!isNaN(clientExpiryMs) && clientExpiryMs > nowMs) {
-        baseTimeMs = clientExpiryMs;
-        logger.info(`[PAYMENT] ⏱️ Stacking subscription from client state: Adding ${durationHours}h onto ${new Date(clientExpiryMs).toISOString()} -> New expiry: ${new Date(baseTimeMs + durationHours * 3600 * 1000).toISOString()}`);
+    } else {
+      const isTrialActive = existingUser?.trialEndsAt && new Date(existingUser.trialEndsAt).getTime() > nowMs;
+      if (isTrialActive) {
+        finalPlanStartsAt = new Date(existingUser.trialEndsAt);
+        baseTimeMs = finalPlanStartsAt.getTime();
+        finalTrialEndsAt = existingUser.trialEndsAt;
+        logger.info(`[PAYMENT] ⏱️ User has active trial ending ${existingUser.trialEndsAt.toISOString()}. Stacking plan ${planId} to start on ${finalPlanStartsAt.toISOString()}`);
+      } else if (existingUser?.subscriptionExpiresAt) {
+        const currentExpiryMs = new Date(existingUser.subscriptionExpiresAt).getTime();
+        if (currentExpiryMs > nowMs) {
+          baseTimeMs = currentExpiryMs;
+          finalPlanStartsAt = new Date(currentExpiryMs);
+        }
+      } else if (currentExpiresAt) {
+        const clientExpiryMs = new Date(currentExpiresAt).getTime();
+        if (!isNaN(clientExpiryMs) && clientExpiryMs > nowMs) {
+          baseTimeMs = clientExpiryMs;
+          finalPlanStartsAt = new Date(clientExpiryMs);
+        }
+      }
+
+      expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+
+      if (existingUser) {
+        existingUser.role = 'PRO_USER';
+        existingUser.subscriptionPlan = planId;
+        existingUser.planStartsAt = finalPlanStartsAt;
+        existingUser.subscriptionExpiresAt = expiresAt;
+        await existingUser.save();
+        logger.info(`[PAYMENT] Upgraded user ${existingUser._id} to plan ${planId}, active until ${expiresAt.toISOString()}`);
       }
     }
 
-    const expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+    if (!existingUser && userId) {
+      try {
+        await UserModel.findByIdAndUpdate(userId, {
+          role: 'PRO_USER',
+          subscriptionPlan: planId,
+          planStartsAt: finalPlanStartsAt,
+          subscriptionExpiresAt: expiresAt,
+          ...(planId === 'TRIAL_7_DAYS' ? { hasUsedTrialOffer: true } : {}),
+          ...(finalTrialEndsAt ? { trialEndsAt: finalTrialEndsAt } : {}),
+        });
+        logger.info(`[PAYMENT] Upgraded user ${userId} to PRO_USER until ${expiresAt.toISOString()}`);
+      } catch (userDbErr: any) {
+        logger.error(`[PAYMENT] User DB update error: ${userDbErr?.message}`);
+      }
+    }
 
     // Record Transaction into MongoDB
     let savedTransaction: any = null;
@@ -262,35 +325,13 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
           verifiedAt: paymentTimestamp.toISOString(),
           isSignatureVerified: true,
           stackedFromPreviousExpiry: baseTimeMs !== nowMs,
+          planStartsAt: finalPlanStartsAt.toISOString(),
+          ...(finalTrialEndsAt ? { trialEndsAt: finalTrialEndsAt.toISOString() } : {}),
         },
       });
       logger.info(`[PAYMENT] Saved PaymentTransaction ${savedTransaction._id} to MongoDB`);
     } catch (dbErr: any) {
       logger.error(`[PAYMENT] Failed saving transaction to DB: ${dbErr?.message}`);
-    }
-
-    // Update User Record in MongoDB
-    if (existingUser) {
-      try {
-        existingUser.role = 'PRO_USER';
-        existingUser.subscriptionPlan = planId;
-        existingUser.subscriptionExpiresAt = expiresAt;
-        await existingUser.save();
-        logger.info(`[PAYMENT] ✅ Upgraded/Extended user ${existingUser._id} to PRO_USER until ${expiresAt.toISOString()}`);
-      } catch (userDbErr: any) {
-        logger.error(`[PAYMENT] User DB update error: ${userDbErr?.message}`);
-      }
-    } else if (userId) {
-      try {
-        await UserModel.findByIdAndUpdate(userId, {
-          role: 'PRO_USER',
-          subscriptionPlan: planId,
-          subscriptionExpiresAt: expiresAt,
-        });
-        logger.info(`[PAYMENT] Upgraded user ${userId} to PRO_USER until ${expiresAt.toISOString()}`);
-      } catch (userDbErr: any) {
-        logger.error(`[PAYMENT] User DB update error: ${userDbErr?.message}`);
-      }
     }
 
     res.status(200).json({

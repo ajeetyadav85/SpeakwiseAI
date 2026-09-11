@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSubscriptionStore, SUBSCRIPTION_PLANS } from '../../stores/useSubscriptionStore';
+import { useSubscriptionStore, SUBSCRIPTION_PLANS, TRIAL_OFFER_PLAN } from '../../stores/useSubscriptionStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { RazorpayService } from '../../services/razorpay.service';
 import { getSubscriptionRemainingTime } from '../../lib/subscriptionTimer';
@@ -12,6 +12,7 @@ import {
   Clock,
   Zap,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -22,18 +23,33 @@ export const SubscriptionModal: React.FC = () => {
     subscriptionModalOpen,
     closeSubscriptionModal,
     isPro,
+    isTrialEligible,
     activePlanId,
     planExpiresAt,
+    trialEndsAt,
     upgradeToPro,
   } = useSubscriptionStore();
   const { user } = useAuthStore();
 
-  // Selected plan (default 1 Month Pro ₹99 or 1 Day ₹9)
-  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanOption>(SUBSCRIPTION_PLANS[0]);
+  // Selected plan (default TRIAL_OFFER_PLAN for eligible new users, or SUBSCRIPTION_PLANS[0])
+  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanOption>(
+    !isPro && isTrialEligible ? TRIAL_OFFER_PLAN : SUBSCRIPTION_PLANS[0]
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [, setTick] = useState(0);
+
+  // Sync selected plan when modal opens or eligibility changes
+  useEffect(() => {
+    if (subscriptionModalOpen) {
+      if (!isPro && isTrialEligible) {
+        setSelectedPlan(TRIAL_OFFER_PLAN);
+      } else if (selectedPlan.id === 'TRIAL_7_DAYS') {
+        setSelectedPlan(SUBSCRIPTION_PLANS[0]);
+      }
+    }
+  }, [subscriptionModalOpen, isPro, isTrialEligible]);
 
   // Live real-time seconds ticker
   useEffect(() => {
@@ -45,7 +61,6 @@ export const SubscriptionModal: React.FC = () => {
   }, [subscriptionModalOpen]);
 
   // Pre-fetch Razorpay order and ensure SDK is ready immediately when modal opens or plan changes.
-  // This completely eliminates the async gap on mobile browsers!
   useEffect(() => {
     if (!subscriptionModalOpen) return;
     RazorpayService.loadRazorpayScript();
@@ -55,13 +70,19 @@ export const SubscriptionModal: React.FC = () => {
   if (!subscriptionModalOpen) return null;
 
   const isWebView = RazorpayService.isMobileWebView();
-  const currentPlan = SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId) || SUBSCRIPTION_PLANS[2];
+  const currentPlan =
+    activePlanId === 'TRIAL_7_DAYS'
+      ? TRIAL_OFFER_PLAN
+      : SUBSCRIPTION_PLANS.find((p) => p.id === activePlanId) || SUBSCRIPTION_PLANS[2];
   const remaining = getSubscriptionRemainingTime(planExpiresAt);
 
   // Compute what the new stacked expiry would be if user recharges with selectedPlan
+  // If user has an active 7-day trial, any paid plan starts AFTER the trial ends!
   const calculateStackedExpiry = (durationHours: number) => {
     let baseTimeMs = Date.now();
-    if (planExpiresAt) {
+    if (trialEndsAt && new Date(trialEndsAt).getTime() > baseTimeMs) {
+      baseTimeMs = new Date(trialEndsAt).getTime();
+    } else if (planExpiresAt) {
       const existingMs = new Date(planExpiresAt).getTime();
       if (existingMs > baseTimeMs) {
         baseTimeMs = existingMs;
@@ -173,15 +194,66 @@ export const SubscriptionModal: React.FC = () => {
                 </span>
               </div>
             </div>
+
+            {trialEndsAt && new Date(trialEndsAt).getTime() > Date.now() && (
+              <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-medium text-indigo-700 dark:text-indigo-300 text-left">
+                <span>⚡ Active ₹1 Trial ends on {new Date(trialEndsAt).toLocaleDateString()}. Any additional recharge will start counting seamlessly after this trial ends!</span>
+              </div>
+            )}
           </div>
         )}
 
+        {/* Special New User Trial Offer (Exclusive for first-time buyers) */}
+        {!isPro && isTrialEligible && (
+          <div
+            onClick={() => setSelectedPlan(TRIAL_OFFER_PLAN)}
+            className={`p-4 rounded-3xl cursor-pointer text-left transition-all relative border overflow-hidden ${
+              selectedPlan.id === 'TRIAL_7_DAYS'
+                ? 'border-indigo-600 bg-gradient-to-r from-indigo-500/15 via-violet-500/10 to-amber-500/10 shadow-lg ring-2 ring-indigo-500/40'
+                : 'border-indigo-500/30 bg-indigo-500/5 hover:border-indigo-500/50'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-500 to-indigo-600 text-white uppercase tracking-wider">
+                    🎉 New User Special
+                  </span>
+                  <Badge variant="emerald">First Purchase Only</Badge>
+                </div>
+                <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                  Get SpeakWise Pro for 7 Days at just ₹1
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                  Instant unlimited AI speech analysis, acoustic coaching, and PDF reports. No auto-renewal, no silent charges.
+                </p>
+              </div>
 
+              <div className="text-right flex-shrink-0">
+                <div className="text-3xl font-black font-mono text-indigo-600 dark:text-indigo-400">
+                  ₹1
+                </div>
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
+                  for 7 Days
+                </span>
+                {selectedPlan.id === 'TRIAL_7_DAYS' ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+                    <Check className="w-3.5 h-3.5" /> Selected
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 underline mt-1 block">
+                    Select Offer
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 6-Plan Recharge Grid */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-            <span>{isPro ? 'Extend / Upgrade Your Plan:' : '1. Select Recharge Pass:'}</span>
+            <span>{isPro ? 'Extend / Upgrade Your Plan:' : !isTrialEligible ? '1. Select Recharge Pass:' : 'Or Choose a Regular Recharge Plan:'}</span>
             <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">
               {selectedPlan.validityText}
             </span>

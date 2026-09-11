@@ -35,8 +35,15 @@ export const LoginPage: React.FC = () => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { login, loginWithGoogle } = useAuthStore();
+  const { isAuthenticated, login, loginWithGoogle } = useAuthStore();
   const navigate = useNavigate();
+
+  // If already authenticated, redirect to Homepage
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
 
   // Check for redirect result on mount
   useEffect(() => {
@@ -46,7 +53,7 @@ export const LoginPage: React.FC = () => {
         setIsGoogleLoading(true);
         try {
           await loginWithGoogle(redirectUser);
-          navigate('/dashboard');
+          navigate('/');
         } catch (error: any) {
           setErrorMessage(error.message || 'Google Authentication failed.');
         } finally {
@@ -65,7 +72,7 @@ export const LoginPage: React.FC = () => {
     try {
       await login(email, password);
       setIsLoading(false);
-      navigate('/dashboard');
+      navigate('/');
     } catch (error: any) {
       setErrorMessage(error.message || 'Invalid email or password.');
       setIsLoading(false);
@@ -81,7 +88,7 @@ export const LoginPage: React.FC = () => {
       await loginWithGoogle(googleUser);
 
       setIsGoogleLoading(false);
-      navigate('/dashboard');
+      navigate('/');
     } catch (error: any) {
       console.error('Google Sign In Error:', error);
       setErrorMessage(error.message || 'Google Authentication failed. Please try again.');

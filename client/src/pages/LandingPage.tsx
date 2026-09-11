@@ -47,6 +47,7 @@ import {
   Award,
   FileText,
   AudioWaveform,
+  X,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -96,6 +97,11 @@ export const LandingPage: React.FC = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
+
+  // Transcript & Timing Refs to prevent stale closure during auto-submission
+  const liveTranscriptRef = useRef<string>('');
+  const elapsedSecondsRef = useRef<number>(0);
+  const handleStopRef = useRef<() => void>(() => {});
 
   // Reference to scroll to practice card if needed
   const practiceCardRef = useRef<HTMLDivElement>(null);
@@ -147,13 +153,20 @@ export const LandingPage: React.FC = () => {
     setCurrentPromptIndex(idx >= 0 ? idx : 0);
   };
 
+  // Keep handleStopRef updated to always point to latest closure
+  useEffect(() => {
+    handleStopRef.current = handleStopInPagePractice;
+  });
+
   // Start in-page practice
   const handleStartInPagePractice = async () => {
     setIsPracticing(true);
     setIsPaused(false);
     setTimeLeft(selectedDuration);
     setElapsedSeconds(0);
+    elapsedSecondsRef.current = 0;
     setLiveTranscript('');
+    liveTranscriptRef.current = '';
     setShowCompletionModal(false);
     setAnalysisReport(null);
 
@@ -207,7 +220,9 @@ export const LandingPage: React.FC = () => {
           for (let i = 0; i < event.results.length; i++) {
             currentTrans += event.results[i][0].transcript + ' ';
           }
-          setLiveTranscript(currentTrans.trim());
+          const trimmed = currentTrans.trim();
+          liveTranscriptRef.current = trimmed;
+          setLiveTranscript(trimmed);
         };
 
         recognition.onerror = (e: any) => {
@@ -227,15 +242,23 @@ export const LandingPage: React.FC = () => {
     let timer: any;
     if (isPracticing && !isPaused) {
       timer = setInterval(() => {
+        setElapsedSeconds((prev) => {
+          const next = prev + 1;
+          elapsedSecondsRef.current = next;
+          return next;
+        });
+
         setTimeLeft((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
-            handleStopInPagePractice();
+            // Safely invoke the latest handleStop via ref to eliminate stale closure
+            setTimeout(() => {
+              handleStopRef.current?.();
+            }, 0);
             return 0;
           }
           return prev - 1;
         });
-        setElapsedSeconds((prev) => prev + 1);
       }, 1000);
     }
     return () => clearInterval(timer);
@@ -271,7 +294,8 @@ export const LandingPage: React.FC = () => {
     setIsPaused(false);
     setShowCompletionModal(true);
 
-    const actualDuration = Math.max(1, elapsedSeconds);
+    const actualDuration = Math.max(1, elapsedSecondsRef.current || elapsedSeconds);
+    const spokenTranscript = (liveTranscriptRef.current || liveTranscript).trim();
 
     if (!hasProAccess) {
       // Free/Guest users see the Pro pass upgrade prompt directly
@@ -284,14 +308,14 @@ export const LandingPage: React.FC = () => {
       const evalResult = await SpeechEvaluatorService.evaluateSpeech({
         topicTitle: activePrompt.word ? `Practice Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt,
         topicCategory: activePrompt.category,
-        transcript: liveTranscript,
+        transcript: spokenTranscript,
         durationSeconds: actualDuration,
       });
 
       const report = SpeechEvaluatorService.createSpeechReport(
         evalResult,
         activePrompt.word ? `Word - ${activePrompt.word}` : activePrompt.prompt,
-        liveTranscript,
+        spokenTranscript,
         actualDuration
       );
 
@@ -311,6 +335,8 @@ export const LandingPage: React.FC = () => {
     setIsPaused(false);
     setTimeLeft(selectedDuration);
     setElapsedSeconds(0);
+    elapsedSecondsRef.current = 0;
+    liveTranscriptRef.current = '';
     setLiveTranscript('');
     setShowCompletionModal(false);
     setAnalysisReport(null);
@@ -882,14 +908,34 @@ export const LandingPage: React.FC = () => {
       {/* Post-Session Analysis & Pro Gating Modal */}
       <AnimatePresence>
         {showCompletionModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in overflow-y-auto">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in overflow-y-auto"
+            onClick={() => {
+              setShowCompletionModal(false);
+              handleResetPractice();
+            }}
+          >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               className="w-full max-w-lg my-8"
+              onClick={(e) => e.stopPropagation()}
             >
               <Card className="p-6 sm:p-8 space-y-5 neu-flat rounded-3xl text-center relative border border-indigo-500/30 shadow-2xl">
+                {/* Close (X) Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCompletionModal(false);
+                    handleResetPractice();
+                  }}
+                  className="absolute top-5 right-5 p-2 rounded-2xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors z-20 cursor-pointer"
+                  aria-label="Close modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
                 <div className="w-14 h-14 rounded-2xl neu-button text-emerald-500 mx-auto flex items-center justify-center shadow-neu-glow">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>

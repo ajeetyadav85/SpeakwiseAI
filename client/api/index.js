@@ -90,7 +90,7 @@ if (mongoose) {
       email: { type: String, required: true, unique: true, index: true, lowercase: true },
       passwordHash: { type: String, required: true },
       fullName: { type: String, required: true },
-      role: { type: String, default: 'PRO_USER' },
+      role: { type: String, default: 'FREE_USER' },
       authProvider: { type: String, default: 'email' },
       googleId: { type: String, default: null },
       avatarUrl: {
@@ -105,6 +105,9 @@ if (mongoose) {
       level: { type: Number, default: 4 },
       subscriptionPlan: { type: String, default: null },
       subscriptionExpiresAt: { type: Date, default: null },
+      hasUsedTrialOffer: { type: Boolean, default: false },
+      trialEndsAt: { type: Date, default: null },
+      planStartsAt: { type: Date, default: null },
       guestAttemptsConsumed: { type: Number, default: 0 },
     },
     { timestamps: true }
@@ -145,6 +148,7 @@ function verifyToken(token, secret = JWT_SECRET) {
 // 3. Razorpay Constants & Pricing
 // ==============================================================================
 const PLAN_PRICES_INR = {
+  'TRIAL_7_DAYS': 1,
   '1_DAY': 9,
   '1_WEEK': 49,
   '1_MONTH': 99,
@@ -155,6 +159,7 @@ const PLAN_PRICES_INR = {
 };
 
 const PLAN_DURATION_HOURS = {
+  'TRIAL_7_DAYS': 7 * 24,
   '1_DAY': 24,
   '1_WEEK': 7 * 24,
   '1_MONTH': 30 * 24,
@@ -190,16 +195,16 @@ async function handleGoogleLogin(req, res) {
           fullName: normalizedName,
           email: normalizedEmail,
           passwordHash: 'GOOGLE_OAUTH_USER',
-          role: 'PRO_USER',
+          role: 'FREE_USER',
           authProvider: 'google',
           googleId: googleId || undefined,
           avatarUrl: effectiveAvatar,
-          streakDays: 7,
-          totalPracticeMinutes: 142,
-          averageScore: 88,
+          streakDays: 1,
+          totalPracticeMinutes: 0,
+          averageScore: 0,
           targetWpm: 145,
-          exp: 1850,
-          level: 4,
+          exp: 100,
+          level: 1,
         });
       } else {
         let changed = false;
@@ -209,6 +214,11 @@ async function handleGoogleLogin(req, res) {
         }
         if (effectiveAvatar && (!dbUser.avatarUrl || dbUser.avatarUrl.includes('unsplash'))) {
           dbUser.avatarUrl = effectiveAvatar;
+          changed = true;
+        }
+        // Auto-check expired subscription on login
+        if (dbUser.role === 'PRO_USER' && dbUser.subscriptionExpiresAt && new Date(dbUser.subscriptionExpiresAt).getTime() <= Date.now()) {
+          dbUser.role = 'FREESTYLE_USER';
           changed = true;
         }
         if (changed) {
@@ -221,21 +231,24 @@ async function handleGoogleLogin(req, res) {
   }
 
   const effectiveId = dbUser ? dbUser._id.toString() : userId;
+  const effectiveRole = dbUser ? dbUser.role : 'FREE_USER';
   const user = {
     id: effectiveId,
     _id: effectiveId,
     email: dbUser ? dbUser.email : normalizedEmail,
     fullName: dbUser ? dbUser.fullName : normalizedName,
     avatarUrl: dbUser ? dbUser.avatarUrl : effectiveAvatar,
-    role: dbUser ? dbUser.role : 'PRO_USER',
+    role: effectiveRole,
     authProvider: 'google',
     googleId: googleId || (dbUser ? dbUser.googleId : undefined),
-    streakDays: dbUser?.streakDays ?? 7,
-    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 142,
-    averageScore: dbUser?.averageScore ?? 88,
+    streakDays: dbUser?.streakDays ?? 1,
+    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 0,
+    averageScore: dbUser?.averageScore ?? 0,
     targetWpm: dbUser?.targetWpm ?? 145,
-    exp: dbUser?.exp ?? 1850,
-    level: dbUser?.level ?? 4,
+    exp: dbUser?.exp ?? 100,
+    level: dbUser?.level ?? 1,
+    subscriptionPlan: dbUser?.subscriptionPlan || undefined,
+    subscriptionExpiresAt: dbUser?.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).toISOString() : undefined,
     createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
   };
 
@@ -276,14 +289,16 @@ async function handleLogin(req, res) {
     email: dbUser ? dbUser.email : normalizedEmail,
     fullName: dbUser ? dbUser.fullName : normalizedName,
     avatarUrl: dbUser ? dbUser.avatarUrl : DEFAULT_AVATAR,
-    role: dbUser ? dbUser.role : 'PRO_USER',
+    role: dbUser ? dbUser.role : 'FREE_USER',
     authProvider: dbUser ? dbUser.authProvider : 'email',
-    streakDays: dbUser?.streakDays ?? 7,
-    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 142,
-    averageScore: dbUser?.averageScore ?? 88,
+    streakDays: dbUser?.streakDays ?? 1,
+    totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 0,
+    averageScore: dbUser?.averageScore ?? 0,
     targetWpm: dbUser?.targetWpm ?? 145,
-    exp: dbUser?.exp ?? 1850,
-    level: dbUser?.level ?? 4,
+    exp: dbUser?.exp ?? 100,
+    level: dbUser?.level ?? 1,
+    subscriptionPlan: dbUser?.subscriptionPlan || undefined,
+    subscriptionExpiresAt: dbUser?.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).toISOString() : undefined,
     createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
   };
 
@@ -319,14 +334,14 @@ async function handleRegister(req, res) {
           fullName: normalizedName,
           email: normalizedEmail,
           passwordHash: 'EMAIL_PASSWORD_HASH',
-          role: 'PRO_USER',
+          role: 'FREE_USER',
           authProvider: 'email',
           avatarUrl: DEFAULT_AVATAR,
           streakDays: 1,
           totalPracticeMinutes: 0,
-          averageScore: 85,
+          averageScore: 0,
           targetWpm: 145,
-          exp: 250,
+          exp: 100,
           level: 1,
         });
       }
@@ -342,13 +357,13 @@ async function handleRegister(req, res) {
     email: dbUser ? dbUser.email : normalizedEmail,
     fullName: dbUser ? dbUser.fullName : normalizedName,
     avatarUrl: dbUser ? dbUser.avatarUrl : DEFAULT_AVATAR,
-    role: dbUser ? dbUser.role : 'PRO_USER',
+    role: dbUser ? dbUser.role : 'FREE_USER',
     authProvider: 'email',
     streakDays: dbUser?.streakDays ?? 1,
     totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 0,
-    averageScore: dbUser?.averageScore ?? 85,
+    averageScore: dbUser?.averageScore ?? 0,
     targetWpm: dbUser?.targetWpm ?? 145,
-    exp: dbUser?.exp ?? 250,
+    exp: dbUser?.exp ?? 100,
     level: dbUser?.level ?? 1,
     createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
   };
@@ -417,7 +432,37 @@ async function handleCreateOrder(req, res) {
   let amountInPaise;
   let planPriceInr;
 
-  if (amount !== undefined && amount !== null) {
+  // Check trial eligibility if planId is TRIAL_7_DAYS
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  const payload = token ? verifyToken(token) : null;
+  const userIdentifier = payload?.email || payload?.id || req.body?.userEmail;
+
+  if (planId === 'TRIAL_7_DAYS') {
+    if (userIdentifier) {
+      try {
+        const db = await connectDB();
+        if (db && UserModel) {
+          const dbUser = await UserModel.findOne({
+            $or: [
+              { email: userIdentifier.toLowerCase() },
+              ...(payload?.id && !payload.id.startsWith('usr_') ? [{ _id: payload.id }] : [])
+            ]
+          });
+          if (dbUser && (dbUser.hasUsedTrialOffer || dbUser.subscriptionPlan)) {
+            return res.status(400).json({
+              success: false,
+              error: 'The ₹1 for 7 days trial offer is only valid once for first-time new users.',
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[ORDER TRIAL CHECK]', e.message);
+      }
+    }
+    planPriceInr = 1;
+    amountInPaise = 100;
+  } else if (amount !== undefined && amount !== null) {
     amountInPaise = Number(amount);
     planPriceInr = Math.round(amountInPaise / 100);
   } else {
@@ -442,7 +487,7 @@ async function handleCreateOrder(req, res) {
     });
   }
 
-  const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+  const authHeaderBase = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
   const orderReceipt = receipt || `rcpt_${(planId || 'sub').toLowerCase()}_${Date.now().toString().slice(-8)}`;
 
   try {
@@ -450,7 +495,7 @@ async function handleCreateOrder(req, res) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: authHeader,
+        Authorization: authHeaderBase,
       },
       body: JSON.stringify({
         amount: amountInPaise,
@@ -551,15 +596,85 @@ async function handleVerifyPayment(req, res) {
   const planPriceInr = PLAN_PRICES_INR[planId] || 99;
   const nowMs = Date.now();
   let baseTimeMs = nowMs;
+  let finalPlanStartsAt = new Date(nowMs);
+  let finalTrialEndsAt = null;
 
-  if (currentExpiresAt) {
-    const clientExpiryMs = new Date(currentExpiresAt).getTime();
-    if (!isNaN(clientExpiryMs) && clientExpiryMs > nowMs) {
-      baseTimeMs = clientExpiryMs;
+  // Look up authenticated user in Database
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  const payload = token ? verifyToken(token) : null;
+  const userIdentifier = payload?.email || payload?.id || req.body?.userEmail;
+  let dbUser = null;
+
+  if (userIdentifier) {
+    try {
+      const db = await connectDB();
+      if (db && UserModel) {
+        dbUser = await UserModel.findOne({
+          $or: [
+            { email: userIdentifier.toLowerCase() },
+            ...(payload?.id && !payload.id.startsWith('usr_') ? [{ _id: payload.id }] : [])
+          ]
+        });
+      }
+    } catch (dbErr) {
+      console.warn('[VERCEL PAYMENT] Failed to query DB user:', dbErr.message);
     }
   }
 
-  const expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+  let expiresAt;
+  if (planId === 'TRIAL_7_DAYS') {
+    // 1. First-time 7-Day Trial Offer at ₹1
+    const trialDurationHours = 168; // 7 days
+    finalTrialEndsAt = new Date(nowMs + trialDurationHours * 3600 * 1000);
+    finalPlanStartsAt = new Date(nowMs);
+    expiresAt = finalTrialEndsAt;
+
+    if (dbUser) {
+      dbUser.role = 'PRO_USER';
+      dbUser.hasUsedTrialOffer = true;
+      dbUser.trialEndsAt = finalTrialEndsAt;
+      dbUser.planStartsAt = finalPlanStartsAt;
+      dbUser.subscriptionPlan = 'TRIAL_7_DAYS';
+      dbUser.subscriptionExpiresAt = expiresAt;
+      await dbUser.save().catch((e) => console.warn('[DB SAVE TRIAL ERROR]', e.message));
+    }
+  } else {
+    // 2. Regular Paid Plan: check if user has active trial and stack cleanly AFTER trial
+    const isTrialActive = dbUser?.trialEndsAt && new Date(dbUser.trialEndsAt).getTime() > nowMs;
+
+    if (isTrialActive) {
+      // Regular plan starts ONLY after the 7-day trial ends
+      finalPlanStartsAt = new Date(dbUser.trialEndsAt);
+      baseTimeMs = finalPlanStartsAt.getTime();
+      finalTrialEndsAt = dbUser.trialEndsAt;
+    } else {
+      // Standard stacking from existing active subscription or now
+      if (currentExpiresAt) {
+        const clientExpiryMs = new Date(currentExpiresAt).getTime();
+        if (!isNaN(clientExpiryMs) && clientExpiryMs > nowMs) {
+          baseTimeMs = clientExpiryMs;
+          finalPlanStartsAt = new Date(clientExpiryMs);
+        }
+      } else if (dbUser?.subscriptionExpiresAt) {
+        const dbExpiryMs = new Date(dbUser.subscriptionExpiresAt).getTime();
+        if (!isNaN(dbExpiryMs) && dbExpiryMs > nowMs) {
+          baseTimeMs = dbExpiryMs;
+          finalPlanStartsAt = new Date(dbExpiryMs);
+        }
+      }
+    }
+
+    expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+
+    if (dbUser) {
+      dbUser.role = 'PRO_USER';
+      dbUser.subscriptionPlan = planId;
+      dbUser.planStartsAt = finalPlanStartsAt;
+      dbUser.subscriptionExpiresAt = expiresAt;
+      await dbUser.save().catch((e) => console.warn('[DB SAVE SUB ERROR]', e.message));
+    }
+  }
 
   return res.status(200).json({
     success: true,
@@ -574,14 +689,97 @@ async function handleVerifyPayment(req, res) {
       planId: planId,
       paidAt: new Date().toISOString(),
       expiresAt: expiresAt.toISOString(),
+      planStartsAt: finalPlanStartsAt ? finalPlanStartsAt.toISOString() : undefined,
+      trialEndsAt: finalTrialEndsAt ? finalTrialEndsAt.toISOString() : undefined,
       durationHours: durationHours,
       amountInr: planPriceInr,
     },
   });
 }
 
-// Usage Status Handler
-function handleUsageStatus(req, res) {
+// Usage Status Handler - Checks authentic database record for logged-in user
+async function handleUsageStatus(req, res) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  let payload = null;
+  if (token) {
+    payload = verifyToken(token);
+  }
+
+  if (payload && (payload.id || payload.email)) {
+    let dbUser = null;
+    try {
+      const db = await connectDB();
+      if (db && UserModel) {
+        if (payload.id && !payload.id.startsWith('usr_')) {
+          dbUser = await UserModel.findById(payload.id);
+        }
+        if (!dbUser && payload.email) {
+          dbUser = await UserModel.findOne({ email: payload.email.toLowerCase() });
+        }
+      }
+    } catch (e) {
+      console.warn('[VERCEL USAGE] DB lookup warning:', e.message);
+    }
+
+    if (dbUser) {
+      // Check trial eligibility: only new users who have never used trial and have no subscription record
+      const isTrialEligible = !dbUser.hasUsedTrialOffer && !dbUser.subscriptionPlan;
+
+      // 1. Pro User verification
+      const isProRole = dbUser.role === 'PRO_USER' || dbUser.role === 'SUPER_ADMIN' || dbUser.role === 'ORG_ADMIN';
+      const subExpiresAt = dbUser.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).getTime() : 0;
+      const now = Date.now();
+
+      if (isProRole) {
+        if (subExpiresAt <= now) {
+          // Pro has expired - automatically revert to free tier (no auto-charge)
+          dbUser.role = 'FREESTYLE_USER';
+          await dbUser.save().catch(() => {});
+        } else {
+          return res.status(200).json({
+            success: true,
+            data: {
+              planType: 'PRO',
+              attemptsUsed: 0,
+              attemptsLeft: 9999,
+              maxAttempts: 9999,
+              canProceed: true,
+              isPro: true,
+              isTrialEligible: false,
+              planId: dbUser.subscriptionPlan || '1_MONTH',
+              expiresAt: dbUser.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).toISOString() : undefined,
+              trialEndsAt: dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).toISOString() : undefined,
+              planStartsAt: dbUser.planStartsAt ? new Date(dbUser.planStartsAt).toISOString() : undefined,
+            },
+          });
+        }
+      }
+
+      // 2. Logged-in Freestyle User (10 free attempts)
+      const attemptsUsed = (dbUser.guestAttemptsConsumed || 0) + (dbUser.freestyleAttemptsUsed || 0);
+      const maxAttempts = 10;
+      const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed);
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          planType: 'FREESTYLE',
+          attemptsUsed,
+          attemptsLeft,
+          maxAttempts,
+          canProceed: attemptsLeft > 0,
+          isPro: false,
+          isTrialEligible,
+          trialEndsAt: dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).toISOString() : undefined,
+          planStartsAt: dbUser.planStartsAt ? new Date(dbUser.planStartsAt).toISOString() : undefined,
+          message: attemptsLeft > 0 ? `Freestyle: ${attemptsLeft} uses remaining` : 'Free usage limit reached. Upgrade to Pro for unlimited access.',
+        },
+      });
+    }
+  }
+
+  // 3. Guest User (Not logged in)
   return res.status(200).json({
     success: true,
     data: {
@@ -591,12 +789,61 @@ function handleUsageStatus(req, res) {
       attemptsUsed: 0,
       canProceed: true,
       planType: 'GUEST',
+      isTrialEligible: true,
     },
   });
 }
 
 // Usage Consume Handler
-function handleUsageConsume(req, res) {
+async function handleUsageConsume(req, res) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  const payload = token ? verifyToken(token) : null;
+
+  if (payload && (payload.id || payload.email)) {
+    try {
+      const db = await connectDB();
+      if (db && UserModel) {
+        let dbUser = await UserModel.findOne({
+          $or: [
+            { email: payload.email?.toLowerCase() },
+            ...(payload?.id && !payload.id.startsWith('usr_') ? [{ _id: payload.id }] : [])
+          ]
+        });
+        if (dbUser) {
+          if (dbUser.role === 'PRO_USER' || dbUser.role === 'SUPER_ADMIN' || dbUser.role === 'ORG_ADMIN') {
+            return res.status(200).json({
+              success: true,
+              data: {
+                isPro: true,
+                attemptsLeft: 9999,
+                maxAttempts: 9999,
+                attemptsUsed: 0,
+                canProceed: true,
+                planType: 'PRO',
+              },
+            });
+          }
+          dbUser.freestyleAttemptsUsed = (dbUser.freestyleAttemptsUsed || 0) + 1;
+          await dbUser.save();
+          const used = (dbUser.guestAttemptsConsumed || 0) + dbUser.freestyleAttemptsUsed;
+          const left = Math.max(0, 10 - used);
+          return res.status(200).json({
+            success: true,
+            data: {
+              isPro: false,
+              attemptsLeft: left,
+              maxAttempts: 10,
+              attemptsUsed: used,
+              canProceed: left > 0,
+              planType: 'FREESTYLE',
+            },
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
   return res.status(200).json({
     success: true,
     data: {

@@ -38,6 +38,7 @@ export const Navbar: React.FC = () => {
     freeAttemptsLeft,
     planType,
     isPro,
+    isTrialEligible,
     planExpiresAt,
     fetchUsageStatus,
     openSubscriptionModal,
@@ -105,13 +106,13 @@ export const Navbar: React.FC = () => {
       <header className="sticky top-0 z-40 w-full neu-flat rounded-none border-b border-white/20 dark:border-white/5 backdrop-blur-md transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
           {/* Left: Brand Logo */}
-          <Link to="/" className="flex items-center gap-2 sm:gap-2.5 group flex-shrink-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl neu-button p-0.5 shadow-neu-glow group-hover:scale-105 transition-transform flex items-center justify-center">
+          <Link to="/" className="flex items-center gap-1.5 sm:gap-2.5 group flex-shrink-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-2xl neu-button p-0.5 shadow-neu-glow group-hover:scale-105 transition-transform flex items-center justify-center">
               <Mic className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500 dark:text-indigo-400" />
             </div>
             <div className="flex flex-col">
-              <span className="font-extrabold text-base sm:text-lg tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5">
-                SpeakWise <span className="text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full neu-pressed text-indigo-600 dark:text-indigo-400 font-extrabold">AI</span>
+              <span className="font-extrabold text-sm sm:text-lg tracking-tight text-slate-900 dark:text-white flex items-center gap-1 sm:gap-1.5">
+                SpeakWise <span className="text-[8px] sm:text-[10px] px-1 sm:px-2 py-0.5 rounded-full neu-pressed text-indigo-600 dark:text-indigo-400 font-extrabold">AI</span>
               </span>
             </div>
           </Link>
@@ -147,7 +148,43 @@ export const Navbar: React.FC = () => {
           </div>
 
           {/* Right Controls: Desktop full controls + Mobile Account & Hamburger */}
-          <div className="flex items-center gap-2 sm:gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
+            {/* Mobile Pro / Offer Pill (Visible on Mobile & Tablets < md) */}
+            <div className="flex md:hidden items-center">
+              {isPro ? (
+                <button
+                  onClick={openSubscriptionModal}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-[11px] font-extrabold border border-indigo-500/30 hover:scale-105 active:scale-95 transition-all"
+                  title="Pro Active. Click to view subscription status."
+                >
+                  <Crown className="w-3 h-3 text-amber-500" />
+                  <span>Pro</span>
+                </button>
+              ) : isTrialEligible ? (
+                <button
+                  onClick={openSubscriptionModal}
+                  className="cursor-pointer flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-[10px] min-[360px]:text-[11px] sm:text-xs font-black hover:scale-105 active:scale-95 transition-all border border-indigo-500/40 bg-indigo-500/15 shadow-sm"
+                  title="Special New User Offer: Get Pro for 7 Days at just ₹1!"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500 animate-bounce flex-shrink-0" />
+                  <span className="whitespace-nowrap font-black">Get Pro at ₹1 for 7 days</span>
+                </button>
+              ) : (
+                <button
+                  onClick={openSubscriptionModal}
+                  className="flex items-center gap-1 px-2 py-1 rounded-full neu-flat-sm text-amber-700 dark:text-amber-400 text-[10px] font-extrabold border border-amber-500/30"
+                  title="Click to View Plans & Upgrade"
+                >
+                  <Zap className="w-3 h-3 text-amber-500" />
+                  <span>
+                    {planType === 'FREESTYLE'
+                      ? `${freeAttemptsLeft}/10`
+                      : `${freeAttemptsLeft}/3 Free`}
+                  </span>
+                </button>
+              )}
+            </div>
+
             {/* Desktop Pro / Usage Counter Pill (Hidden on Mobile) */}
             <div className="hidden md:flex items-center">
               {isPro ? (
@@ -158,6 +195,15 @@ export const Navbar: React.FC = () => {
                 >
                   <Crown className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                   <span>✨ Pro: {subRemaining.shortText}</span>
+                </div>
+              ) : isTrialEligible ? (
+                <div
+                  onClick={openSubscriptionModal}
+                  className="cursor-pointer flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-xs font-black hover:scale-105 transition-transform border border-indigo-500/30 bg-indigo-500/10 shadow-sm"
+                  title="Special New User Offer: Get Pro for 7 Days at just ₹1!"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-bounce" />
+                  <span>Get Pro at ₹1 for 7 days</span>
                 </div>
               ) : (
                 <div
@@ -423,7 +469,11 @@ export const Navbar: React.FC = () => {
                 }}
                 leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
               >
-                {isPro ? `✨ Pro Active: ${subRemaining.shortText} (Extend)` : 'Recharge Pro (Starting ₹9)'}
+                {isPro
+                  ? `✨ Pro Active: ${subRemaining.shortText} (Extend)`
+                  : isTrialEligible
+                  ? '🎉 Get Pro at ₹1 for 7 Days'
+                  : 'Recharge Pro (Starting ₹9)'}
               </Button>
             </div>
           </div>

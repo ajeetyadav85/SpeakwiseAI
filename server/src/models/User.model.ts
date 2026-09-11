@@ -23,6 +23,9 @@ export interface IUser extends Document {
   freestyleAttemptsUsed: number;
   subscriptionPlan?: string;
   subscriptionExpiresAt?: Date;
+  hasUsedTrialOffer?: boolean;
+  trialEndsAt?: Date;
+  planStartsAt?: Date;
   refreshTokenHash?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -67,6 +70,9 @@ const UserSchema: Schema = new Schema(
     freestyleAttemptsUsed: { type: Number, default: 0 },
     subscriptionPlan: { type: String, default: null },
     subscriptionExpiresAt: { type: Date, default: null },
+    hasUsedTrialOffer: { type: Boolean, default: false },
+    trialEndsAt: { type: Date, default: null },
+    planStartsAt: { type: Date, default: null },
     refreshTokenHash: { type: String, select: false },
   },
   { timestamps: true }

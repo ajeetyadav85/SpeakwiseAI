@@ -22,7 +22,7 @@ import { Badge } from '../components/ui/Badge';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuthStore();
-  const { freeAttemptsLeft, isPro, openSubscriptionModal } = useSubscriptionStore();
+  const { freeAttemptsLeft, isPro, isTrialEligible, openSubscriptionModal } = useSubscriptionStore();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -34,13 +34,22 @@ export const DashboardPage: React.FC = () => {
               <Zap className="w-6 h-6 animate-pulse" />
             </div>
             <div>
-              <div className="font-extrabold text-sm text-slate-900 dark:text-white">
-                {freeAttemptsLeft > 0
-                  ? `Free Trial Active — ${freeAttemptsLeft} of 3 Speech Analyses Remaining`
-                  : 'Free Trial Expired (0/3 Remaining)'}
+              <div className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <span>
+                  {freeAttemptsLeft > 0
+                    ? `Free Trial Active — ${freeAttemptsLeft} of 3 Speech Analyses Remaining`
+                    : 'Free Trial Expired (0/3 Remaining)'}
+                </span>
+                {isTrialEligible && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-600 text-white animate-pulse">
+                    Offer: ₹1 for 7 Days
+                  </span>
+                )}
               </div>
               <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-medium">
-                {freeAttemptsLeft > 0
+                {isTrialEligible
+                  ? 'First-time user special: Unlock 7 days of full SpeakWise Pro access for just ₹1!'
+                  : freeAttemptsLeft > 0
                   ? 'Upgrade to SpeakWise Pro for unlimited AI speech analysis and PDF exports.'
                   : 'Subscribe to Pro to unlock unlimited speech practice and full report analysis.'}
               </div>
@@ -51,10 +60,10 @@ export const DashboardPage: React.FC = () => {
             size="sm"
             variant="primary"
             onClick={openSubscriptionModal}
-            className="rounded-full px-6 py-2.5 text-xs font-extrabold flex-shrink-0"
+            className="rounded-full px-6 py-2.5 text-xs font-extrabold flex-shrink-0 shadow-lg shadow-indigo-600/20"
             leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
           >
-            Upgrade to Pro (₹499/mo)
+            {isTrialEligible ? 'Get Pro at ₹1 for 7 Days' : 'Upgrade to Pro — ₹9 for 1 Day'}
           </Button>
         </div>
       )}
@@ -69,6 +78,8 @@ export const DashboardPage: React.FC = () => {
               </span>
               {isPro ? (
                 <Badge variant="indigo">✨ Pro Member</Badge>
+              ) : isTrialEligible ? (
+                <Badge variant="indigo">🎉 ₹1 Trial Available ({freeAttemptsLeft}/3)</Badge>
               ) : (
                 <Badge variant="amber">⚡ Free Trial ({freeAttemptsLeft}/3)</Badge>
               )}

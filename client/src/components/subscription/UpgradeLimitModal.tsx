@@ -15,6 +15,7 @@ export const UpgradeLimitModal: React.FC = () => {
     openSubscriptionModal,
     planType,
     attemptsUsed,
+    isTrialEligible,
   } = useSubscriptionStore();
 
   if (!upgradeLimitModalOpen) return null;
@@ -63,7 +64,9 @@ export const UpgradeLimitModal: React.FC = () => {
           </h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-sm mx-auto font-medium">
             {!isAuthenticated
-              ? "You've used your 3 free guest uses. Create a free account or Sign In to unlock 10 Free Freestyle attempts, or recharge for just ₹9 for 24-hr access!"
+              ? "You've used your 3 free guest uses. Create a free account or unlock 7 Days Pro for just ₹1!"
+              : isTrialEligible
+              ? "Special New User Offer: Unlock full SpeakWise Pro access for 7 days at just ₹1!"
               : "You've reached your free attempts limit. Recharge starting at just ₹9 for 24-hour unlimited access!"}
           </p>
         </div>
@@ -104,7 +107,7 @@ export const UpgradeLimitModal: React.FC = () => {
                   className="rounded-full text-xs font-bold py-2.5"
                   leftIcon={<Crown className="w-4 h-4 text-amber-500" />}
                 >
-                  Recharge (₹9+)
+                  {isTrialEligible ? 'Try Pro at ₹1' : 'Recharge (₹9+)'}
                 </Button>
               </div>
             </>
@@ -116,7 +119,7 @@ export const UpgradeLimitModal: React.FC = () => {
               className="w-full rounded-full py-3.5 text-xs font-extrabold shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2"
               rightIcon={<ArrowRight className="w-4 h-4" />}
             >
-              Recharge Pro (Starting ₹9)
+              {isTrialEligible ? 'Claim 7 Days Pro at ₹1' : 'Recharge Pro (Starting ₹9)'}
             </Button>
           )}
         </div>

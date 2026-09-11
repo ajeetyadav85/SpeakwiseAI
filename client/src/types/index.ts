@@ -1,6 +1,6 @@
 export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PRO_USER' | 'FREESTYLE_USER' | 'FREE_USER';
 
-export type SubscriptionPlanId = '1_DAY' | '1_WEEK' | '1_MONTH' | '3_MONTH' | '6_MONTH' | '1_YEAR';
+export type SubscriptionPlanId = 'TRIAL_7_DAYS' | '1_DAY' | '1_WEEK' | '1_MONTH' | '3_MONTH' | '6_MONTH' | '1_YEAR';
 
 export interface SubscriptionPlanOption {
   id: SubscriptionPlanId;

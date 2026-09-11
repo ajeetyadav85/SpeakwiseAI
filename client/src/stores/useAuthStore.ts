@@ -36,6 +36,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (email: string, password?: string) => {
     try {
+      useSubscriptionStore.getState().resetSubscription();
       const response = await apiClient.post('/auth/login', {
         email,
         password: password || 'password123',
@@ -47,7 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         email: user.email || email,
         fullName: user.fullName || email.split('@')[0],
         avatarUrl: user.avatarUrl || DEFAULT_AVATAR,
-        role: user.role || 'PRO_USER',
+        role: user.role || 'FREE_USER',
         streakDays: user.streakDays ?? 1,
         totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
         averageScore: user.averageScore ?? 85,
@@ -66,12 +67,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (error: any) {
       // If network error (backend offline/standalone demo), allow client demo login
       if (error.code === 'ERR_NETWORK' || !error.response) {
+        useSubscriptionStore.getState().resetSubscription();
         const demoUser: User = {
           id: 'usr_' + Date.now(),
           email,
           fullName: email.split('@')[0].replace('.', ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
           avatarUrl: DEFAULT_AVATAR,
-          role: 'PRO_USER',
+          role: 'FREE_USER',
           streakDays: 1,
           totalPracticeMinutes: 0,
           averageScore: 85,
@@ -92,6 +94,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   register: async (fullName: string, email: string, password?: string) => {
     try {
+      useSubscriptionStore.getState().resetSubscription();
       const response = await apiClient.post('/auth/register', {
         fullName,
         email,
@@ -104,7 +107,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         email: user.email || email,
         fullName: user.fullName || fullName,
         avatarUrl: user.avatarUrl || DEFAULT_AVATAR,
-        role: user.role || 'PRO_USER',
+        role: user.role || 'FREE_USER',
         streakDays: user.streakDays ?? 1,
         totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
         averageScore: user.averageScore ?? 0,
@@ -122,12 +125,13 @@ export const useAuthStore = create<AuthState>((set) => ({
       useSubscriptionStore.getState().fetchUsageStatus();
     } catch (error: any) {
       if (error.code === 'ERR_NETWORK' || !error.response) {
+        useSubscriptionStore.getState().resetSubscription();
         const newUser: User = {
           id: 'usr_' + Date.now(),
           email,
           fullName,
           avatarUrl: DEFAULT_AVATAR,
-          role: 'PRO_USER',
+          role: 'FREE_USER',
           streakDays: 1,
           totalPracticeMinutes: 0,
           averageScore: 0,
@@ -148,6 +152,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   loginWithGoogle: async ({ email, fullName, googleId, avatarUrl }) => {
     try {
+      useSubscriptionStore.getState().resetSubscription();
       const response = await apiClient.post('/auth/google', {
         email,
         fullName,
@@ -161,7 +166,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         email: user.email || email,
         fullName: user.fullName || fullName,
         avatarUrl: user.avatarUrl || avatarUrl || DEFAULT_AVATAR,
-        role: user.role || 'PRO_USER',
+        role: user.role || 'FREE_USER',
         streakDays: user.streakDays ?? 1,
         totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
         averageScore: user.averageScore ?? 85,
@@ -179,12 +184,13 @@ export const useAuthStore = create<AuthState>((set) => ({
       useSubscriptionStore.getState().fetchUsageStatus();
     } catch (error: any) {
       if (error.code === 'ERR_NETWORK' || !error.response) {
+        useSubscriptionStore.getState().resetSubscription();
         const gUser: User = {
           id: 'usr_g_' + (googleId || Date.now()),
           email,
           fullName,
           avatarUrl: avatarUrl || DEFAULT_AVATAR,
-          role: 'PRO_USER',
+          role: 'FREE_USER',
           streakDays: 1,
           totalPracticeMinutes: 0,
           averageScore: 85,
@@ -203,11 +209,16 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-
-
   logout: () => {
-    localStorage.removeItem('speakwise_user');
-    localStorage.removeItem('speakwise_token');
+    try {
+      localStorage.removeItem('speakwise_user');
+      localStorage.removeItem('speakwise_token');
+      localStorage.removeItem('speakwise_sub_expiry');
+      localStorage.removeItem('speakwise_sub_plan');
+      localStorage.removeItem('speakwise_guest_attempts');
+      localStorage.removeItem('speakwise_guest_id');
+    } catch (e) {}
+    useSubscriptionStore.getState().resetSubscription();
     set({ user: null, isAuthenticated: false });
     useSubscriptionStore.getState().fetchUsageStatus();
   },

@@ -148,34 +148,37 @@ export const Navbar: React.FC = () => {
           </div>
 
           {/* Right Controls: Desktop full controls + Mobile Account & Hamburger */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {/* Mobile Pro / Offer Pill (Visible on Mobile & Tablets < md) */}
-            <div className="flex md:hidden items-center">
+            <div className="flex md:hidden items-center shrink-0">
               {isPro ? (
                 <button
                   onClick={openSubscriptionModal}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-[11px] font-extrabold border border-indigo-500/30 hover:scale-105 active:scale-95 transition-all"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-[11px] font-extrabold border border-indigo-500/30 hover:scale-105 active:scale-95 transition-all shrink-0"
                   title="Pro Active. Click to view subscription status."
                 >
-                  <Crown className="w-3 h-3 text-amber-500" />
+                  <Crown className="w-3 h-3 text-amber-500 shrink-0" />
                   <span>Pro</span>
                 </button>
               ) : isTrialEligible ? (
                 <button
                   onClick={openSubscriptionModal}
-                  className="cursor-pointer flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full neu-flat-sm text-indigo-600 dark:text-indigo-400 text-[10px] min-[360px]:text-[11px] sm:text-xs font-black hover:scale-105 active:scale-95 transition-all border border-indigo-500/40 bg-indigo-500/15 shadow-sm"
+                  className="cursor-pointer flex items-center gap-1.5 px-2.5 py-1 rounded-2xl neu-flat-sm text-indigo-600 dark:text-indigo-400 font-black hover:scale-105 active:scale-95 transition-all border border-indigo-500/40 bg-indigo-500/15 shadow-sm shrink-0"
                   title="Special New User Offer: Get Pro for 7 Days at just ₹1!"
                 >
-                  <Sparkles className="w-3 h-3 text-amber-500 animate-bounce flex-shrink-0" />
-                  <span className="whitespace-nowrap font-black">Get Pro at ₹1 for 7 days</span>
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-bounce shrink-0" />
+                  <div className="flex flex-col text-left leading-none">
+                    <span className="text-[10.5px] sm:text-xs font-black tracking-tight whitespace-nowrap">Get Pro at ₹1</span>
+                    <span className="text-[9px] sm:text-[10px] font-extrabold text-indigo-600/85 dark:text-indigo-300/85 whitespace-nowrap mt-0.5">for 7 days</span>
+                  </div>
                 </button>
               ) : (
                 <button
                   onClick={openSubscriptionModal}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full neu-flat-sm text-amber-700 dark:text-amber-400 text-[10px] font-extrabold border border-amber-500/30"
+                  className="flex items-center gap-1 px-2 py-1 rounded-full neu-flat-sm text-amber-700 dark:text-amber-400 text-[10px] font-extrabold border border-amber-500/30 shrink-0"
                   title="Click to View Plans & Upgrade"
                 >
-                  <Zap className="w-3 h-3 text-amber-500" />
+                  <Zap className="w-3 h-3 text-amber-500 shrink-0" />
                   <span>
                     {planType === 'FREESTYLE'
                       ? `${freeAttemptsLeft}/10`
@@ -274,20 +277,20 @@ export const Navbar: React.FC = () => {
 
             {/* Account / Profile Icon Button (Visible on Both Web & Mobile Screens) */}
             {user ? (
-              <div className="relative" ref={profileMenuRef}>
+              <div className="relative shrink-0" ref={profileMenuRef}>
                 <button
                   onClick={() => {
                     setShowProfileMenu(!showProfileMenu);
                     setShowNotifications(false);
                   }}
-                  className="flex items-center p-0.5 rounded-full neu-button hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+                  className="flex items-center justify-center p-0.5 rounded-full neu-button hover:scale-105 active:scale-95 transition-transform cursor-pointer shrink-0 aspect-square"
                   title="Account Profile Menu"
                   aria-label="Account Profile Menu"
                 >
                   <img
                     src={user.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80'}
                     alt={user.fullName}
-                    className="w-8 h-8 rounded-full object-cover border border-indigo-500/30"
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover aspect-square shrink-0 border border-indigo-500/30"
                   />
                 </button>
 
@@ -382,7 +385,7 @@ export const Navbar: React.FC = () => {
               </div>
             ) : (
               /* Guest Account Icon on Mobile / Buttons on Desktop */
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <div className="hidden sm:flex items-center gap-2">
                   <Link to="/login">
                     <Button size="sm" variant="outline" className="rounded-full text-xs px-3.5 py-1.5 font-bold">
@@ -396,8 +399,8 @@ export const Navbar: React.FC = () => {
                   </Link>
                 </div>
                 {/* Mobile Guest Account Icon */}
-                <Link to="/login" className="sm:hidden p-2 rounded-full neu-button text-indigo-600 dark:text-indigo-400" title="Sign In">
-                  <UserIcon className="w-4 h-4" />
+                <Link to="/login" className="sm:hidden p-1.5 rounded-full neu-button text-indigo-600 dark:text-indigo-400 shrink-0 aspect-square flex items-center justify-center" title="Sign In">
+                  <UserIcon className="w-4 h-4 shrink-0" />
                 </Link>
               </div>
             )}
@@ -405,11 +408,11 @@ export const Navbar: React.FC = () => {
             {/* Rightmost Hamburger Icon (☰) for Mobile */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-full neu-button text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
+              className="lg:hidden p-1.5 sm:p-2 rounded-full neu-button text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 shrink-0 aspect-square flex items-center justify-center"
               title="Practice Menu"
               aria-label="Practice Menu"
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileMenuOpen ? <X className="w-5 h-5 shrink-0" /> : <Menu className="w-5 h-5 shrink-0" />}
             </button>
           </div>
         </div>

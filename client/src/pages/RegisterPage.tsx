@@ -108,8 +108,8 @@ export const RegisterPage: React.FC = () => {
             </div>
             <span className="font-extrabold text-2xl tracking-tight text-slate-900 dark:text-white">SpeakWise AI</span>
           </Link>
-          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">Create Pro Account</h2>
-          <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">Start your 14-day free trial of real-time speech coaching</p>
+          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">Create Account</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">Get 7 days trial at ₹1</p>
         </div>
 
         <Card className="p-8 neu-flat">

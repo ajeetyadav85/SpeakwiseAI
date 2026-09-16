@@ -6,8 +6,13 @@ import { UserModel } from '../models/User.model.js';
 import { PaymentTransactionModel } from '../models/PaymentTransaction.model.js';
 import { logger } from '../utils/logger.js';
 
-// Plan duration hours lookup table
+// =========================================================================
+// CRITICAL MONETIZATION RULE (REGRESSION GUARD):
+// 'TRIAL_7_DAYS' MUST be explicitly mapped (168 hours). Missing it defaults
+// to 720h (30 days), breaking trial validity calculations!
+// =========================================================================
 const PLAN_DURATION_HOURS: Record<string, number> = {
+  'TRIAL_7_DAYS': 7 * 24, // 168h
   '1_DAY': 24,
   '1_WEEK': 7 * 24, // 168h
   '1_MONTH': 30 * 24, // 720h
@@ -56,13 +61,44 @@ export const createOrderController = async (req: Request, res: Response, next: N
   try {
     const { planId = '1_MONTH', currency = 'INR', receipt, amount } = req.body;
 
+    // =========================================================================
+    // CRITICAL USER EXISTENCE GUARD (PAYMENT SEQUENCING):
+    // A subscription order can NEVER be created unless the user is authenticated
+    // and their user record genuinely exists in MongoDB.
+    // =========================================================================
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+
+    if (!userId && !userEmail) {
+      res.status(401).json({
+        success: false,
+        code: 'AUTH_REQUIRED',
+        error: 'Please log in or register before purchasing a subscription.',
+      });
+      return;
+    }
+
+    let dbUser = userId ? await UserModel.findById(userId) : null;
+    if (!dbUser && userEmail) {
+      dbUser = await UserModel.findOne({ email: userEmail.toLowerCase().trim() });
+    }
+
+    if (!dbUser) {
+      logger.warn(`[PAYMENT] createOrder rejected: User record not found in MongoDB for userId: ${userId}, email: ${userEmail}`);
+      res.status(401).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: 'User account not found in database. Please log in before purchasing a subscription.',
+      });
+      return;
+    }
+
     // Determine amount in paise (minimum 100 paise = ₹1.00)
     let amountInPaise: number;
     let planPriceInr: number;
 
     if (planId === 'TRIAL_7_DAYS') {
-      const user = req.user?.id ? await UserModel.findById(req.user.id) : null;
-      if (user && (user.hasUsedTrialOffer || user.subscriptionPlan)) {
+      if (dbUser.hasUsedTrialOffer || dbUser.subscriptionPlan) {
         res.status(400).json({
           success: false,
           error: 'The ₹1 for 7 days trial offer is only valid once for first-time new users.',
@@ -108,13 +144,13 @@ export const createOrderController = async (req: Request, res: Response, next: N
         receipt: orderReceipt,
         notes: {
           planId,
-          userId: req.user?.id || 'guest',
-          userEmail: req.user?.email || 'user@speakwise.ai',
+          userId: dbUser._id.toString(),
+          userEmail: dbUser.email,
         },
       });
 
       const orderId = order.id;
-      logger.info(`[PAYMENT] Created Razorpay order: ${orderId} for amount ${amountInPaise} paise (${currency})`);
+      logger.info(`[PAYMENT] Created Razorpay order: ${orderId} for amount ${amountInPaise} paise (${currency}) bound to user ${dbUser._id}`);
 
       res.status(200).json({
         success: true,
@@ -217,22 +253,47 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
 
     // 3. Mark as paid in database & stack subscription onto existing expiry
     const userId = req.user?.id;
-    const effectiveEmail = req.user?.email || userEmail || 'user@speakwise.ai';
+    const effectiveEmail = req.user?.email || userEmail;
     const effectiveName = req.user?.fullName || userName || 'Valued Speaker';
+
+    if (!userId && !effectiveEmail) {
+      res.status(401).json({
+        success: false,
+        code: 'AUTH_REQUIRED',
+        error: 'User authentication required to verify payment.',
+      });
+      return;
+    }
+
+    // Fetch existing user from MongoDB - user MUST genuinely exist!
+    let existingUser: any = null;
+    if (userId) {
+      existingUser = await UserModel.findById(userId);
+    }
+    if (!existingUser && effectiveEmail) {
+      existingUser = await UserModel.findOne({ email: effectiveEmail.toLowerCase().trim() });
+    }
+
+    // =========================================================================
+    // CRITICAL USER EXISTENCE GUARD:
+    // A subscription payment can NEVER be mapped or verified against a non-existent
+    // or deleted database record.
+    // =========================================================================
+    if (!existingUser) {
+      logger.warn(`[PAYMENT] Payment verification rejected: user record not found in MongoDB for userId: ${userId}, email: ${effectiveEmail}`);
+      res.status(401).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: 'User account not found in database. Cannot map subscription to a non-existent user. Please log in or sign up.',
+      });
+      return;
+    }
 
     const durationHours = PLAN_DURATION_HOURS[planId] || 720;
     const planPriceInr = PLAN_PRICES_INR[planId] || 99;
     const paymentTimestamp = new Date();
     const nowMs = paymentTimestamp.getTime();
     let baseTimeMs = nowMs;
-
-    // Fetch existing user to check if they have active subscription time left
-    let existingUser: any = null;
-    if (userId) {
-      existingUser = await UserModel.findById(userId);
-    } else if (effectiveEmail) {
-      existingUser = await UserModel.findOne({ email: effectiveEmail.toLowerCase().trim() });
-    }
 
     let expiresAt: Date;
     let finalPlanStartsAt: Date = paymentTimestamp;
@@ -243,16 +304,14 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
       finalTrialEndsAt = new Date(nowMs + trialHours * 3600 * 1000);
       expiresAt = finalTrialEndsAt;
 
-      if (existingUser) {
-        existingUser.role = 'PRO_USER';
-        existingUser.hasUsedTrialOffer = true;
-        existingUser.trialEndsAt = finalTrialEndsAt;
-        existingUser.planStartsAt = paymentTimestamp;
-        existingUser.subscriptionPlan = 'TRIAL_7_DAYS';
-        existingUser.subscriptionExpiresAt = expiresAt;
-        await existingUser.save();
-        logger.info(`[PAYMENT] Activated ₹1 7-Day trial for user ${existingUser._id} until ${expiresAt.toISOString()}`);
-      }
+      existingUser.role = 'PRO_USER';
+      existingUser.hasUsedTrialOffer = true;
+      existingUser.trialEndsAt = finalTrialEndsAt;
+      existingUser.planStartsAt = paymentTimestamp;
+      existingUser.subscriptionPlan = 'TRIAL_7_DAYS';
+      existingUser.subscriptionExpiresAt = expiresAt;
+      await existingUser.save();
+      logger.info(`[PAYMENT] Activated ₹1 7-Day trial for user ${existingUser._id} until ${expiresAt.toISOString()}`);
     } else {
       const isTrialActive = existingUser?.trialEndsAt && new Date(existingUser.trialEndsAt).getTime() > nowMs;
       if (isTrialActive) {
@@ -276,39 +335,21 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
 
       expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
 
-      if (existingUser) {
-        existingUser.role = 'PRO_USER';
-        existingUser.subscriptionPlan = planId;
-        existingUser.planStartsAt = finalPlanStartsAt;
-        existingUser.subscriptionExpiresAt = expiresAt;
-        await existingUser.save();
-        logger.info(`[PAYMENT] Upgraded user ${existingUser._id} to plan ${planId}, active until ${expiresAt.toISOString()}`);
-      }
-    }
-
-    if (!existingUser && userId) {
-      try {
-        await UserModel.findByIdAndUpdate(userId, {
-          role: 'PRO_USER',
-          subscriptionPlan: planId,
-          planStartsAt: finalPlanStartsAt,
-          subscriptionExpiresAt: expiresAt,
-          ...(planId === 'TRIAL_7_DAYS' ? { hasUsedTrialOffer: true } : {}),
-          ...(finalTrialEndsAt ? { trialEndsAt: finalTrialEndsAt } : {}),
-        });
-        logger.info(`[PAYMENT] Upgraded user ${userId} to PRO_USER until ${expiresAt.toISOString()}`);
-      } catch (userDbErr: any) {
-        logger.error(`[PAYMENT] User DB update error: ${userDbErr?.message}`);
-      }
+      existingUser.role = 'PRO_USER';
+      existingUser.subscriptionPlan = planId;
+      existingUser.planStartsAt = finalPlanStartsAt;
+      existingUser.subscriptionExpiresAt = expiresAt;
+      await existingUser.save();
+      logger.info(`[PAYMENT] Upgraded user ${existingUser._id} to plan ${planId}, active until ${expiresAt.toISOString()}`);
     }
 
     // Record Transaction into MongoDB
     let savedTransaction: any = null;
     try {
       savedTransaction = await PaymentTransactionModel.create({
-        userId: existingUser?._id || userId || undefined,
-        userEmail: effectiveEmail,
-        userName: effectiveName,
+        userId: existingUser._id,
+        userEmail: existingUser.email,
+        userName: existingUser.fullName || effectiveName,
         orderId: razorpay_order_id,
         paymentId: razorpay_payment_id,
         signature: razorpay_signature,
@@ -347,6 +388,8 @@ export const verifyPaymentController = async (req: Request, res: Response, next:
         planId,
         paidAt: paymentTimestamp.toISOString(),
         expiresAt: expiresAt.toISOString(),
+        trialEndsAt: finalTrialEndsAt ? finalTrialEndsAt.toISOString() : undefined,
+        planStartsAt: finalPlanStartsAt ? finalPlanStartsAt.toISOString() : undefined,
         durationHours,
         amountInr: planPriceInr,
       },
@@ -411,25 +454,65 @@ export const razorpayWebhookController = async (req: Request, res: Response): Pr
         existingUser = await UserModel.findOne({ email: email.toLowerCase().trim() }).catch(() => null);
       }
 
-      if (existingUser?.subscriptionExpiresAt) {
-        const currentExpiryMs = new Date(existingUser.subscriptionExpiresAt).getTime();
-        if (currentExpiryMs > nowMs) {
-          baseTimeMs = currentExpiryMs;
-          console.log(`[RAZORPAY WEBHOOK] ⏱️ Stacking subscription for user ${existingUser._id}: adding ${durationHours}h onto existing expiry`);
+      let expiresAt: Date;
+      let finalPlanStartsAt: Date = paymentTimestamp;
+      let finalTrialEndsAt: Date | null = null;
+
+      // =========================================================================
+      // CRITICAL MONETIZATION RULE (REGRESSION GUARD):
+      // Stacking logic in Webhook MUST match verifyPaymentController:
+      // (1) TRIAL_7_DAYS must set hasUsedTrialOffer and trialEndsAt.
+      // (2) If a user buys a regular plan during active trial, planStartsAt = trialEndsAt
+      //     and duration stacks onto trial end, NOT starting immediately.
+      // =========================================================================
+      if (planId === 'TRIAL_7_DAYS') {
+        const trialHours = 168;
+        finalTrialEndsAt = new Date(nowMs + trialHours * 3600 * 1000);
+        expiresAt = finalTrialEndsAt;
+
+        if (existingUser) {
+          try {
+            existingUser.role = 'PRO_USER';
+            existingUser.hasUsedTrialOffer = true;
+            existingUser.trialEndsAt = finalTrialEndsAt;
+            existingUser.planStartsAt = paymentTimestamp;
+            existingUser.subscriptionPlan = 'TRIAL_7_DAYS';
+            existingUser.subscriptionExpiresAt = expiresAt;
+            await existingUser.save();
+            console.log(`[RAZORPAY WEBHOOK] ✅ Activated trial for user ${existingUser._id} until ${expiresAt.toISOString()}`);
+          } catch (uErr: any) {
+            console.error(`[RAZORPAY WEBHOOK] Failed to update user trial in DB: ${uErr?.message}`);
+          }
         }
-      }
+      } else {
+        const isTrialActive = existingUser?.trialEndsAt && new Date(existingUser.trialEndsAt).getTime() > nowMs;
+        if (isTrialActive) {
+          finalPlanStartsAt = new Date(existingUser.trialEndsAt);
+          baseTimeMs = finalPlanStartsAt.getTime();
+          finalTrialEndsAt = existingUser.trialEndsAt;
+          console.log(`[RAZORPAY WEBHOOK] ⏱️ User has active trial ending ${existingUser.trialEndsAt.toISOString()}. Stacking plan ${planId} to start on ${finalPlanStartsAt.toISOString()}`);
+        } else if (existingUser?.subscriptionExpiresAt) {
+          const currentExpiryMs = new Date(existingUser.subscriptionExpiresAt).getTime();
+          if (currentExpiryMs > nowMs) {
+            baseTimeMs = currentExpiryMs;
+            finalPlanStartsAt = new Date(currentExpiryMs);
+            console.log(`[RAZORPAY WEBHOOK] ⏱️ Stacking subscription for user ${existingUser._id}: adding ${durationHours}h onto existing expiry`);
+          }
+        }
 
-      const expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
+        expiresAt = new Date(baseTimeMs + durationHours * 3600 * 1000);
 
-      if (existingUser) {
-        try {
-          existingUser.role = 'PRO_USER';
-          existingUser.subscriptionPlan = planId;
-          existingUser.subscriptionExpiresAt = expiresAt;
-          await existingUser.save();
-          console.log(`[RAZORPAY WEBHOOK] ✅ Extended user ${existingUser._id} to PRO_USER until ${expiresAt.toISOString()}`);
-        } catch (uErr: any) {
-          console.error(`[RAZORPAY WEBHOOK] Failed to update user in DB: ${uErr?.message}`);
+        if (existingUser) {
+          try {
+            existingUser.role = 'PRO_USER';
+            existingUser.subscriptionPlan = planId;
+            existingUser.planStartsAt = finalPlanStartsAt;
+            existingUser.subscriptionExpiresAt = expiresAt;
+            await existingUser.save();
+            console.log(`[RAZORPAY WEBHOOK] ✅ Extended user ${existingUser._id} to PRO_USER until ${expiresAt.toISOString()}`);
+          } catch (uErr: any) {
+            console.error(`[RAZORPAY WEBHOOK] Failed to update user in DB: ${uErr?.message}`);
+          }
         }
       }
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSubscriptionStore, SUBSCRIPTION_PLANS, TRIAL_OFFER_PLAN } from '../../stores/useSubscriptionStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { RazorpayService } from '../../services/razorpay.service';
@@ -27,9 +28,9 @@ export const SubscriptionModal: React.FC = () => {
     activePlanId,
     planExpiresAt,
     trialEndsAt,
-    upgradeToPro,
   } = useSubscriptionStore();
-  const { user } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
+  const navigate = useNavigate();
 
   // Selected plan (default TRIAL_OFFER_PLAN for eligible new users, or SUBSCRIPTION_PLANS[0])
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanOption>(
@@ -63,6 +64,24 @@ export const SubscriptionModal: React.FC = () => {
   // Pre-fetch Razorpay order and ensure SDK is ready immediately when modal opens or plan changes.
   useEffect(() => {
     if (!subscriptionModalOpen) return;
+
+    // Background validation: verify user still exists in database
+    if (localStorage.getItem('speakwise_token')) {
+      useAuthStore
+        .getState()
+        .refreshUser()
+        .then((u) => {
+          if (!u) {
+            closeSubscriptionModal();
+            navigate('/login');
+          }
+        })
+        .catch(() => {
+          closeSubscriptionModal();
+          navigate('/login');
+        });
+    }
+
     RazorpayService.loadRazorpayScript();
     RazorpayService.prefetchSubscriptionOrder(selectedPlan);
   }, [subscriptionModalOpen, selectedPlan.id]);
@@ -94,31 +113,68 @@ export const SubscriptionModal: React.FC = () => {
   const previewNewExpiry = calculateStackedExpiry(selectedPlan.durationHours);
 
   // Directly launch official Razorpay checkout (PhonePe, GPay, Paytm, Cards, NetBanking)
-  // SYNCHRONOUS INVOCATION: rzp.open() is called immediately in user gesture without any preceding await!
-  const handleProceedToPay = () => {
+  const handleProceedToPay = async () => {
+    if (!isAuthenticated || !user) {
+      closeSubscriptionModal();
+      navigate('/login');
+      return;
+    }
+
     setIsLoading(true);
     setErrorMessage(null);
+
+    // =========================================================================
+    // CRITICAL USER EXISTENCE GUARD (PAYMENT SEQUENCING):
+    // Pre-flight check: Verify that the user's database record genuinely exists
+    // in MongoDB before opening Razorpay or allowing payment to proceed!
+    // =========================================================================
+    const token = localStorage.getItem('speakwise_token');
+    if (!token) {
+      setIsLoading(false);
+      useAuthStore.getState().logout();
+      closeSubscriptionModal();
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const verifiedUser = await useAuthStore.getState().refreshUser();
+      if (!verifiedUser) {
+        setIsLoading(false);
+        useAuthStore.getState().logout();
+        closeSubscriptionModal();
+        navigate('/login');
+        return;
+      }
+    } catch {
+      setIsLoading(false);
+      useAuthStore.getState().logout();
+      closeSubscriptionModal();
+      navigate('/login');
+      return;
+    }
 
     RazorpayService.processSubscriptionPayment(selectedPlan)
       .then((result) => {
         setIsLoading(false);
         if (result.success) {
           setSuccess(true);
-          const serverExpiresAt = result.data?.expiresAt;
-          upgradeToPro(selectedPlan.id, selectedPlan.durationHours, serverExpiresAt);
-          if (user) {
-            useAuthStore.getState().updateUser({
-              role: 'PRO_USER',
-              subscriptionPlan: selectedPlan.id,
-              subscriptionExpiresAt: serverExpiresAt,
-            });
-          }
           setTimeout(() => {
             setSuccess(false);
             closeSubscriptionModal();
           }, 1500);
         } else if (result.error && result.error !== 'Payment was cancelled by user.') {
-          setErrorMessage(result.error);
+          if (
+            result.error.toLowerCase().includes('log in') ||
+            result.error.toLowerCase().includes('not found') ||
+            result.error.toLowerCase().includes('unauthorized')
+          ) {
+            useAuthStore.getState().logout();
+            closeSubscriptionModal();
+            navigate('/login');
+          } else {
+            setErrorMessage(result.error);
+          }
         }
       })
       .catch((err: any) => {
@@ -369,7 +425,14 @@ export const SubscriptionModal: React.FC = () => {
           </div>
         )}
 
-        {/* Direct Proceed to Pay Button (Opens Razorpay Checkout) */}
+        {/* Unauthenticated Sign-In Prompt */}
+        {!isAuthenticated && (
+          <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold flex items-center gap-2">
+            <span>🔒 Please sign in or create an account to activate your Pro subscription.</span>
+          </div>
+        )}
+
+        {/* Direct Proceed to Pay Button (Opens Razorpay Checkout or Sign-in) */}
         <div className="space-y-1.5">
           <Button
             size="lg"
@@ -381,6 +444,8 @@ export const SubscriptionModal: React.FC = () => {
           >
             {success
               ? 'Pro Plan Activated! 🎉'
+              : !isAuthenticated || !user
+              ? `Sign In to Activate Pro • ₹${selectedPlan.priceInr}`
               : isPro
               ? `Add +${selectedPlan.durationLabel} to Pro • Pay ₹${selectedPlan.priceInr}`
               : `Proceed to Pay ₹${selectedPlan.priceInr} with Razorpay`}

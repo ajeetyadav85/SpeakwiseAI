@@ -160,6 +160,15 @@ export const Navbar: React.FC = () => {
                   <Crown className="w-3 h-3 text-amber-500 shrink-0" />
                   <span>Pro</span>
                 </button>
+              ) : freeAttemptsLeft > 0 ? (
+                <button
+                  onClick={openSubscriptionModal}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full neu-flat-sm text-amber-700 dark:text-amber-400 text-[11px] font-extrabold border border-amber-500/30 shrink-0"
+                  title={`${freeAttemptsLeft} ${freeAttemptsLeft === 1 ? 'use' : 'uses'} left`}
+                >
+                  <Zap className="w-3 h-3 text-amber-500 shrink-0 animate-pulse" />
+                  <span>{freeAttemptsLeft} {freeAttemptsLeft === 1 ? 'use' : 'uses'} left</span>
+                </button>
               ) : isTrialEligible ? (
                 <button
                   onClick={openSubscriptionModal}
@@ -179,11 +188,7 @@ export const Navbar: React.FC = () => {
                   title="Click to View Plans & Upgrade"
                 >
                   <Zap className="w-3 h-3 text-amber-500 shrink-0" />
-                  <span>
-                    {planType === 'FREESTYLE'
-                      ? `${freeAttemptsLeft}/10`
-                      : `${freeAttemptsLeft}/3 Free`}
-                  </span>
+                  <span>Recharge Pro</span>
                 </button>
               )}
             </div>
@@ -198,6 +203,15 @@ export const Navbar: React.FC = () => {
                 >
                   <Crown className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                   <span>✨ Pro: {subRemaining.shortText}</span>
+                </div>
+              ) : freeAttemptsLeft > 0 ? (
+                <div
+                  onClick={openSubscriptionModal}
+                  className="cursor-pointer flex items-center gap-1.5 px-3.5 py-1.5 rounded-full neu-flat-sm text-amber-700 dark:text-amber-400 text-xs font-extrabold hover:scale-105 transition-transform border border-amber-500/30"
+                  title={`${freeAttemptsLeft} ${freeAttemptsLeft === 1 ? 'use' : 'uses'} left`}
+                >
+                  <Zap className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                  <span>{freeAttemptsLeft} {freeAttemptsLeft === 1 ? 'use' : 'uses'} left</span>
                 </div>
               ) : isTrialEligible ? (
                 <div
@@ -215,11 +229,7 @@ export const Navbar: React.FC = () => {
                   title="Click to View Plans & Upgrade"
                 >
                   <Zap className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                  <span>
-                    {planType === 'FREESTYLE'
-                      ? `${freeAttemptsLeft}/10 Left`
-                      : `${freeAttemptsLeft}/3 Free`}
-                  </span>
+                  <span>Upgrade to Pro</span>
                 </div>
               )}
             </div>

@@ -104,6 +104,11 @@ export class RazorpayService {
   public static async prefetchSubscriptionOrder(
     plan: SubscriptionPlanOption = SUBSCRIPTION_PLANS[0]
   ): Promise<PrefetchedOrder | null> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('speakwise_token') : null;
+    if (!token) {
+      return null;
+    }
+
     const cached = this.getCachedOrder(plan.id);
     if (cached) return cached;
 
@@ -230,15 +235,37 @@ export class RazorpayService {
           });
 
           if (verifyRes.data?.success) {
-            const expiresAt = verifyRes.data?.data?.expiresAt;
-            useSubscriptionStore.getState().upgradeToPro(plan.id, plan.durationHours, expiresAt);
-            if (user) {
-              useAuthStore.getState().updateUser({
-                role: 'PRO_USER',
-                subscriptionPlan: plan.id,
-                subscriptionExpiresAt: expiresAt,
-              });
-            }
+            const verifyData = verifyRes.data?.data || {};
+            const expiresAt = verifyData.expiresAt;
+            const planStartsAt = verifyData.planStartsAt;
+            const trialEndsAt = verifyData.trialEndsAt;
+
+            // =========================================================================
+            // CRITICAL POST-PAYMENT STATE SYNCHRONIZATION (REGRESSION GUARD):
+            // Immediately after payment verification succeeds, update global stores
+            // and trigger an immediate fresh re-fetch of backend subscription status
+            // and auth profile so the UI reflects Pro status without manual logout/login.
+            // =========================================================================
+            useSubscriptionStore.getState().upgradeToPro(
+              plan.id,
+              plan.durationHours,
+              expiresAt,
+              planStartsAt,
+              trialEndsAt
+            );
+
+            useAuthStore.getState().updateUser({
+              role: 'PRO_USER',
+              subscriptionPlan: plan.id,
+              subscriptionExpiresAt: expiresAt,
+            });
+
+            // Re-fetch usage status and user profile in parallel immediately and await completion
+            await Promise.allSettled([
+              useSubscriptionStore.getState().fetchUsageStatus(),
+              useAuthStore.getState().refreshUser(),
+            ]);
+
             RazorpayService.clearCachedOrder(plan.id);
             resolve({
               success: true,

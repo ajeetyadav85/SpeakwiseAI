@@ -9,7 +9,12 @@
     "start": "node dist/app.js",
     "seed": "tsx src/scripts/seedContentRunner.ts",
     "seed:groq": "tsx src/scripts/seedGroqContent.ts",
-    "clean:db": "tsx src/scripts/cleanContentDb.ts"
+    "clean:db": "tsx src/scripts/cleanContentDb.ts",
+    "test:regression": "tsx src/scripts/testProRegression.ts",
+    "test:refresh": "tsx src/scripts/testTokenRefreshRegression.ts",
+    "test:e2e-sync": "tsx src/scripts/testE2EProSync.ts",
+    "test:self-healing": "tsx src/scripts/testSelfHealing.ts",
+    "test:user-guard": "tsx src/scripts/testUserExistencePaymentGuard.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

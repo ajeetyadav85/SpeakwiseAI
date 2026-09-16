@@ -109,11 +109,30 @@ if (mongoose) {
       trialEndsAt: { type: Date, default: null },
       planStartsAt: { type: Date, default: null },
       guestAttemptsConsumed: { type: Number, default: 0 },
+      // =========================================================================
+      // CRITICAL REVENUE-SAFETY RULE (REGRESSION GUARD):
+      // freestyleAttemptsUsed MUST be in schema. Omitting it causes Mongoose
+      // to silently strip it on save(), leaving attempt counts permanently stuck!
+      // =========================================================================
+      freestyleAttemptsUsed: { type: Number, default: 0 },
     },
     { timestamps: true }
   );
 
   UserModel = mongoose.models.User || mongoose.model('User', userSchema);
+
+  const guestUsageSchema = new mongoose.Schema(
+    {
+      guestId: { type: String, required: true, unique: true, index: true },
+      dailyAttemptsUsed: { type: Number, default: 0 },
+      totalAttemptsUsed: { type: Number, default: 0 },
+      lastResetDate: { type: Date, default: Date.now },
+      ipAddress: { type: String, default: '' },
+    },
+    { timestamps: true }
+  );
+
+  GuestUsageModel = mongoose.models.GuestUsage || mongoose.model('GuestUsage', guestUsageSchema);
 }
 
 // ==============================================================================
@@ -218,7 +237,7 @@ async function handleGoogleLogin(req, res) {
         }
         // Auto-check expired subscription on login
         if (dbUser.role === 'PRO_USER' && dbUser.subscriptionExpiresAt && new Date(dbUser.subscriptionExpiresAt).getTime() <= Date.now()) {
-          dbUser.role = 'FREESTYLE_USER';
+          dbUser.role = 'FREE_USER';
           changed = true;
         }
         if (changed) {
@@ -406,6 +425,29 @@ async function handleGetMe(req, res) {
 
   const fullName = dbUser ? dbUser.fullName : email.split('@')[0].replace('.', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+  // Reconcile effective role against active DB subscription/trial dates
+  const now = Date.now();
+  const isAdmin = dbUser?.role === 'SUPER_ADMIN' || dbUser?.role === 'ORG_ADMIN';
+  const hasActiveSub = Boolean(
+    dbUser?.subscriptionExpiresAt && new Date(dbUser.subscriptionExpiresAt).getTime() > now
+  );
+  const hasActiveTrial = Boolean(
+    dbUser?.trialEndsAt && new Date(dbUser.trialEndsAt).getTime() > now
+  );
+
+  let effectiveRole = dbUser ? dbUser.role : (payload?.role || 'FREE_USER');
+  if (dbUser && !isAdmin) {
+    if (hasActiveSub || hasActiveTrial) {
+      effectiveRole = 'PRO_USER';
+    } else {
+      effectiveRole = 'FREE_USER';
+    }
+    if (dbUser.role !== effectiveRole) {
+      dbUser.role = effectiveRole;
+      await dbUser.save().catch(() => {});
+    }
+  }
+
   return res.status(200).json({
     success: true,
     data: {
@@ -413,13 +455,18 @@ async function handleGetMe(req, res) {
       _id: dbUser ? dbUser._id.toString() : userId,
       email: dbUser ? dbUser.email : email,
       fullName,
-      role: dbUser ? dbUser.role : (payload?.role || 'PRO_USER'),
+      role: effectiveRole,
       avatarUrl: dbUser ? dbUser.avatarUrl : DEFAULT_AVATAR,
       authProvider: dbUser ? dbUser.authProvider : 'email',
       streakDays: dbUser?.streakDays ?? 7,
       totalPracticeMinutes: dbUser?.totalPracticeMinutes ?? 142,
       averageScore: dbUser?.averageScore ?? 88,
       targetWpm: dbUser?.targetWpm ?? 145,
+      subscriptionPlan: dbUser?.subscriptionPlan || (hasActiveTrial ? 'TRIAL_7_DAYS' : undefined),
+      subscriptionExpiresAt: dbUser?.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).toISOString() : undefined,
+      hasUsedTrialOffer: dbUser?.hasUsedTrialOffer || false,
+      trialEndsAt: dbUser?.trialEndsAt ? new Date(dbUser.trialEndsAt).toISOString() : undefined,
+      planStartsAt: dbUser?.planStartsAt ? new Date(dbUser.planStartsAt).toISOString() : undefined,
       createdAt: dbUser?.createdAt ? new Date(dbUser.createdAt).toISOString() : new Date().toISOString(),
     },
   });
@@ -726,39 +773,49 @@ async function handleUsageStatus(req, res) {
       // Check trial eligibility: only new users who have never used trial and have no subscription record
       const isTrialEligible = !dbUser.hasUsedTrialOffer && !dbUser.subscriptionPlan;
 
-      // 1. Pro User verification
-      const isProRole = dbUser.role === 'PRO_USER' || dbUser.role === 'SUPER_ADMIN' || dbUser.role === 'ORG_ADMIN';
+      // =========================================================================
+      // CRITICAL REVENUE-SAFETY RULE (REGRESSION GUARD):
+      // NEVER grant Pro access simply because dbUser.role === 'PRO_USER'.
+      // Pro access MUST strictly require a verified future expiry date:
+      // subscriptionExpiresAt > now (paid plan) OR trialEndsAt > now (active trial),
+      // unless the user has administrative privileges (SUPER_ADMIN / ORG_ADMIN).
+      // =========================================================================
+      // 1. Pro User verification (Admin or active paid/trial subscription with future expiration)
+      const isAdmin = dbUser.role === 'SUPER_ADMIN' || dbUser.role === 'ORG_ADMIN';
       const subExpiresAt = dbUser.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).getTime() : 0;
+      const trialEndsAt = dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).getTime() : 0;
       const now = Date.now();
+      const hasActiveSub = subExpiresAt > now;
+      const hasActiveTrial = trialEndsAt > now;
 
-      if (isProRole) {
-        if (subExpiresAt <= now) {
-          // Pro has expired - automatically revert to free tier (no auto-charge)
-          dbUser.role = 'FREESTYLE_USER';
-          await dbUser.save().catch(() => {});
-        } else {
-          return res.status(200).json({
-            success: true,
-            data: {
-              planType: 'PRO',
-              attemptsUsed: 0,
-              attemptsLeft: 9999,
-              maxAttempts: 9999,
-              canProceed: true,
-              isPro: true,
-              isTrialEligible: false,
-              planId: dbUser.subscriptionPlan || '1_MONTH',
-              expiresAt: dbUser.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).toISOString() : undefined,
-              trialEndsAt: dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).toISOString() : undefined,
-              planStartsAt: dbUser.planStartsAt ? new Date(dbUser.planStartsAt).toISOString() : undefined,
-            },
-          });
-        }
+      if (isAdmin || hasActiveSub || hasActiveTrial) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            planType: 'PRO',
+            attemptsUsed: 0,
+            attemptsLeft: 9999,
+            maxAttempts: 9999,
+            canProceed: true,
+            isPro: true,
+            isTrialEligible: false,
+            planId: dbUser.subscriptionPlan || (hasActiveTrial ? 'TRIAL_7_DAYS' : '1_MONTH'),
+            expiresAt: dbUser.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).toISOString() : undefined,
+            trialEndsAt: dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).toISOString() : undefined,
+            planStartsAt: dbUser.planStartsAt ? new Date(dbUser.planStartsAt).toISOString() : undefined,
+          },
+        });
       }
 
-      // 2. Logged-in Freestyle User (10 free attempts)
+      // If user had role PRO_USER without active sub/trial, fix their role in DB
+      if (dbUser.role === 'PRO_USER') {
+        dbUser.role = 'FREE_USER';
+        await dbUser.save().catch(() => {});
+      }
+
+      // 2. Logged-in Free User (3 lifetime free speech analyses)
       const attemptsUsed = (dbUser.guestAttemptsConsumed || 0) + (dbUser.freestyleAttemptsUsed || 0);
-      const maxAttempts = 10;
+      const maxAttempts = 3;
       const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed);
 
       return res.status(200).json({
@@ -773,23 +830,37 @@ async function handleUsageStatus(req, res) {
           isTrialEligible,
           trialEndsAt: dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).toISOString() : undefined,
           planStartsAt: dbUser.planStartsAt ? new Date(dbUser.planStartsAt).toISOString() : undefined,
-          message: attemptsLeft > 0 ? `Freestyle: ${attemptsLeft} uses remaining` : 'Free usage limit reached. Upgrade to Pro for unlimited access.',
+          message: attemptsLeft > 0 ? `${attemptsLeft} of 3 free speech analyses remaining` : 'All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access.',
         },
       });
     }
   }
 
-  // 3. Guest User (Not logged in)
+  // 3. Guest User (Persistent GuestUsage in MongoDB)
+  const guestId = req.headers['x-guest-id'] || 'gst_default';
+  let guestUsed = 0;
+  try {
+    const db = await connectDB();
+    if (db && GuestUsageModel) {
+      const gDoc = await GuestUsageModel.findOne({ guestId });
+      if (gDoc) {
+        guestUsed = Math.max(gDoc.totalAttemptsUsed || 0, gDoc.dailyAttemptsUsed || 0);
+      }
+    }
+  } catch (e) {}
+
+  const guestLeft = Math.max(0, 3 - guestUsed);
   return res.status(200).json({
     success: true,
     data: {
       isPro: false,
-      attemptsLeft: 3,
+      attemptsLeft: guestLeft,
       maxAttempts: 3,
-      attemptsUsed: 0,
-      canProceed: true,
+      attemptsUsed: guestUsed,
+      canProceed: guestLeft > 0,
       planType: 'GUEST',
       isTrialEligible: true,
+      message: guestLeft > 0 ? `${guestLeft} of 3 free speech analyses remaining` : 'All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access.',
     },
   });
 }
@@ -811,7 +882,14 @@ async function handleUsageConsume(req, res) {
           ]
         });
         if (dbUser) {
-          if (dbUser.role === 'PRO_USER' || dbUser.role === 'SUPER_ADMIN' || dbUser.role === 'ORG_ADMIN') {
+          const isAdmin = dbUser.role === 'SUPER_ADMIN' || dbUser.role === 'ORG_ADMIN';
+          const subExpiresAt = dbUser.subscriptionExpiresAt ? new Date(dbUser.subscriptionExpiresAt).getTime() : 0;
+          const trialEndsAt = dbUser.trialEndsAt ? new Date(dbUser.trialEndsAt).getTime() : 0;
+          const now = Date.now();
+          const hasActiveSub = subExpiresAt > now;
+          const hasActiveTrial = trialEndsAt > now;
+
+          if (isAdmin || hasActiveSub || hasActiveTrial) {
             return res.status(200).json({
               success: true,
               data: {
@@ -827,13 +905,13 @@ async function handleUsageConsume(req, res) {
           dbUser.freestyleAttemptsUsed = (dbUser.freestyleAttemptsUsed || 0) + 1;
           await dbUser.save();
           const used = (dbUser.guestAttemptsConsumed || 0) + dbUser.freestyleAttemptsUsed;
-          const left = Math.max(0, 10 - used);
+          const left = Math.max(0, 3 - used);
           return res.status(200).json({
             success: true,
             data: {
               isPro: false,
               attemptsLeft: left,
-              maxAttempts: 10,
+              maxAttempts: 3,
               attemptsUsed: used,
               canProceed: left > 0,
               planType: 'FREESTYLE',
@@ -844,14 +922,35 @@ async function handleUsageConsume(req, res) {
     } catch (e) {}
   }
 
+  // Persistent Guest Consume in MongoDB
+  const guestId = req.headers['x-guest-id'] || 'gst_default';
+  let gUsed = 1;
+  try {
+    const db = await connectDB();
+    if (db && GuestUsageModel) {
+      const gDoc = await GuestUsageModel.findOneAndUpdate(
+        { guestId },
+        {
+          $inc: { dailyAttemptsUsed: 1, totalAttemptsUsed: 1 },
+          $setOnInsert: { lastResetDate: new Date(), ipAddress: req.ip || '' },
+        },
+        { upsert: true, new: true }
+      );
+      if (gDoc) {
+        gUsed = Math.max(gDoc.totalAttemptsUsed || 0, gDoc.dailyAttemptsUsed || 0);
+      }
+    }
+  } catch (e) {}
+
+  const left = Math.max(0, 3 - gUsed);
   return res.status(200).json({
     success: true,
     data: {
       isPro: false,
-      attemptsLeft: 2,
+      attemptsLeft: left,
       maxAttempts: 3,
-      attemptsUsed: 1,
-      canProceed: true,
+      attemptsUsed: gUsed,
+      canProceed: left > 0,
       planType: 'GUEST',
     },
   });

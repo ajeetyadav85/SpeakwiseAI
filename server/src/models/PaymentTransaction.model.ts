@@ -29,11 +29,15 @@ const PaymentTransactionSchema: Schema = new Schema(
     userName: { type: String, default: '' },
     orderId: { type: String, required: true, index: true },
     paymentId: { type: String, required: true, index: true },
-    signature: { type: String, default: '' },
+    // =========================================================================
+    // CRITICAL MONETIZATION RULE (REGRESSION GUARD):
+    // TRIAL_7_DAYS MUST be included in planId enum. Omitting it causes Mongoose
+    // validation failure on ₹1 trial payments, crashing transaction recording!
+    // =========================================================================
     planId: {
       type: String,
       required: true,
-      enum: ['1_DAY', '1_WEEK', '1_MONTH', '3_MONTH', '6_MONTH', '1_YEAR', 'PRO_MONTHLY'],
+      enum: ['TRIAL_7_DAYS', '1_DAY', '1_WEEK', '1_MONTH', '3_MONTH', '6_MONTH', '1_YEAR', 'PRO_MONTHLY'],
     },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'INR' },

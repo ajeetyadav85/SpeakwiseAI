@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useSubscriptionStore } from '../stores/useSubscriptionStore';
@@ -21,8 +21,13 @@ import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 
 export const DashboardPage: React.FC = () => {
-  const { user } = useAuthStore();
-  const { freeAttemptsLeft, isPro, isTrialEligible, openSubscriptionModal } = useSubscriptionStore();
+  const { user, refreshUser } = useAuthStore();
+  const { freeAttemptsLeft, isPro, isTrialEligible, openSubscriptionModal, fetchUsageStatus } = useSubscriptionStore();
+
+  useEffect(() => {
+    fetchUsageStatus();
+    refreshUser();
+  }, [fetchUsageStatus, refreshUser]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -31,40 +36,54 @@ export const DashboardPage: React.FC = () => {
         <div className="p-5 rounded-3xl neu-flat flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl neu-button text-amber-500 flex items-center justify-center font-bold">
-              <Zap className="w-6 h-6 animate-pulse" />
+              {freeAttemptsLeft > 0 ? (
+                <Zap className="w-6 h-6 text-amber-500 animate-pulse" />
+              ) : (
+                <Crown className="w-6 h-6 text-indigo-500 animate-bounce" />
+              )}
             </div>
             <div>
               <div className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                 <span>
                   {freeAttemptsLeft > 0
-                    ? `Free Trial Active — ${freeAttemptsLeft} of 3 Speech Analyses Remaining`
-                    : 'Free Trial Expired (0/3 Remaining)'}
+                    ? `Free Tier Active — ${freeAttemptsLeft} ${freeAttemptsLeft === 1 ? 'use' : 'uses'} left`
+                    : isTrialEligible
+                    ? 'All 3 Free Analyses Used — Unlock 7 Days of Pro for ₹1'
+                    : 'All 3 Free Analyses Used — Upgrade to Continue'}
                 </span>
-                {isTrialEligible && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-600 text-white animate-pulse">
-                    Offer: ₹1 for 7 Days
-                  </span>
-                )}
               </div>
               <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-medium">
-                {isTrialEligible
-                  ? 'First-time user special: Unlock 7 days of full SpeakWise Pro access for just ₹1!'
-                  : freeAttemptsLeft > 0
-                  ? 'Upgrade to SpeakWise Pro for unlimited AI speech analysis and PDF exports.'
-                  : 'Subscribe to Pro to unlock unlimited speech practice and full report analysis.'}
+                {freeAttemptsLeft > 0
+                  ? `You have ${freeAttemptsLeft} ${freeAttemptsLeft === 1 ? 'free speech analysis' : 'free speech analyses'} left. Use them to evaluate your impromptu speaking, grammar, and fluency.`
+                  : isTrialEligible
+                  ? 'First-time user special: Get 7 full days of unlimited AI speech scorecards, WPM pacing, and personalized drills for just ₹1.'
+                  : 'Subscribe to Pro to unlock unlimited speech practice and full report analysis. Plans start at ₹9.'}
               </div>
             </div>
           </div>
 
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={openSubscriptionModal}
-            className="rounded-full px-6 py-2.5 text-xs font-extrabold flex-shrink-0 shadow-lg shadow-indigo-600/20"
-            leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
-          >
-            {isTrialEligible ? 'Get Pro at ₹1 for 7 Days' : 'Upgrade to Pro — ₹9 for 1 Day'}
-          </Button>
+          {freeAttemptsLeft > 0 ? (
+            <Link to="/practice" className="flex-shrink-0">
+              <Button
+                size="sm"
+                variant="primary"
+                className="rounded-full px-6 py-2.5 text-xs font-extrabold shadow-lg shadow-indigo-600/20"
+                leftIcon={<Mic className="w-4 h-4 text-emerald-300" />}
+              >
+                Practice Speech Now
+              </Button>
+            </Link>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={openSubscriptionModal}
+              className="rounded-full px-6 py-2.5 text-xs font-extrabold flex-shrink-0 shadow-lg shadow-indigo-600/20"
+              leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
+            >
+              {isTrialEligible ? 'Get Pro at ₹1 for 7 Days' : 'Upgrade to Pro — From ₹9'}
+            </Button>
+          )}
         </div>
       )}
 
@@ -78,10 +97,12 @@ export const DashboardPage: React.FC = () => {
               </span>
               {isPro ? (
                 <Badge variant="indigo">✨ Pro Member</Badge>
+              ) : freeAttemptsLeft > 0 ? (
+                <Badge variant="amber">⚡ {freeAttemptsLeft} {freeAttemptsLeft === 1 ? 'use' : 'uses'} left</Badge>
               ) : isTrialEligible ? (
-                <Badge variant="indigo">🎉 ₹1 Trial Available ({freeAttemptsLeft}/3)</Badge>
+                <Badge variant="indigo">🎉 ₹1 Pro Trial Available</Badge>
               ) : (
-                <Badge variant="amber">⚡ Free Trial ({freeAttemptsLeft}/3)</Badge>
+                <Badge variant="amber">🔒 Pro Plan Required</Badge>
               )}
             </div>
             <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">

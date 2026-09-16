@@ -20,8 +20,6 @@ export const UpgradeLimitModal: React.FC = () => {
 
   if (!upgradeLimitModalOpen) return null;
 
-  const isFreestyleLimit = planType === 'FREESTYLE';
-
   const handleSignIn = () => {
     closeUpgradeLimitModal();
     navigate('/login');
@@ -60,14 +58,14 @@ export const UpgradeLimitModal: React.FC = () => {
         {/* Messaging */}
         <div className="space-y-2">
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            {!isAuthenticated ? '3 Free Guest Uses Consumed' : '10 Free Freestyle Uses Consumed'}
+            All 3 Free Speech Analyses Used
           </h2>
           <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-sm mx-auto font-medium">
             {!isAuthenticated
-              ? "You've used your 3 free guest uses. Create a free account or unlock 7 Days Pro for just ₹1!"
+              ? "You've used your 3 free analyses. Create an account to unlock 7 Days of Pro for just ₹1!"
               : isTrialEligible
-              ? "Special New User Offer: Unlock full SpeakWise Pro access for 7 days at just ₹1!"
-              : "You've reached your free attempts limit. Recharge starting at just ₹9 for 24-hour unlimited access!"}
+              ? "Special New User Offer: Unlock 7 full days of unlimited AI speech scorecards & reports for just ₹1!"
+              : "You've completed your 3 free analyses. Recharge starting at just ₹9 for unlimited speech practice & AI feedback!"}
           </p>
         </div>
 
@@ -75,7 +73,7 @@ export const UpgradeLimitModal: React.FC = () => {
         <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
           <span>Usage Status: </span>
           <strong className="font-extrabold">
-            {!isAuthenticated ? '3/3 Free Guest Attempts Used' : `${attemptsUsed}/10 Free Freestyle Uses Consumed`}
+            {attemptsUsed >= 3 ? '3 of 3 Free Analyses Used (0 uses left)' : `${attemptsUsed} of 3 Free Analyses Used`}
           </strong>
         </div>
 
@@ -90,7 +88,7 @@ export const UpgradeLimitModal: React.FC = () => {
                 className="w-full rounded-full py-3.5 text-xs font-extrabold shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2"
                 leftIcon={<UserPlus className="w-4 h-4" />}
               >
-                Sign Up Free (Get 10 Uses)
+                Sign Up & Claim ₹1 Pro Trial
               </Button>
               <div className="grid grid-cols-2 gap-2.5 pt-1">
                 <Button

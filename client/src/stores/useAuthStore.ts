@@ -11,6 +11,7 @@ interface AuthState {
   loginWithGoogle: (payload: { email: string; fullName: string; googleId: string; avatarUrl?: string }) => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
+  refreshUser: () => Promise<User | null>;
 }
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80';
@@ -30,7 +31,7 @@ const getSavedUser = (): User | null => {
 
 const initialUser = getSavedUser();
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: initialUser,
   isAuthenticated: !!initialUser,
 
@@ -42,7 +43,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         password: password || 'password123',
       });
 
-      const { user, accessToken } = response.data.data;
+      const { user, accessToken, refreshToken } = response.data.data;
       const authenticatedUser: User = {
         id: user.id || user._id,
         email: user.email || email,
@@ -61,6 +62,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.setItem('speakwise_user', JSON.stringify(authenticatedUser));
       if (accessToken) {
         localStorage.setItem('speakwise_token', accessToken);
+      }
+      if (refreshToken) {
+        localStorage.setItem('speakwise_refresh_token', refreshToken);
       }
       set({ user: authenticatedUser, isAuthenticated: true });
       useSubscriptionStore.getState().fetchUsageStatus();
@@ -101,7 +105,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         password: password || 'password123',
       });
 
-      const { user, accessToken } = response.data.data;
+      const { user, accessToken, refreshToken } = response.data.data;
       const authenticatedUser: User = {
         id: user.id || user._id,
         email: user.email || email,
@@ -120,6 +124,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.setItem('speakwise_user', JSON.stringify(authenticatedUser));
       if (accessToken) {
         localStorage.setItem('speakwise_token', accessToken);
+      }
+      if (refreshToken) {
+        localStorage.setItem('speakwise_refresh_token', refreshToken);
       }
       set({ user: authenticatedUser, isAuthenticated: true });
       useSubscriptionStore.getState().fetchUsageStatus();
@@ -160,7 +167,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         avatarUrl,
       });
 
-      const { user, accessToken } = response.data.data;
+      const { user, accessToken, refreshToken } = response.data.data;
       const authenticatedUser: User = {
         id: user.id || user._id,
         email: user.email || email,
@@ -179,6 +186,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.setItem('speakwise_user', JSON.stringify(authenticatedUser));
       if (accessToken) {
         localStorage.setItem('speakwise_token', accessToken);
+      }
+      if (refreshToken) {
+        localStorage.setItem('speakwise_refresh_token', refreshToken);
       }
       set({ user: authenticatedUser, isAuthenticated: true });
       useSubscriptionStore.getState().fetchUsageStatus();
@@ -213,6 +223,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       localStorage.removeItem('speakwise_user');
       localStorage.removeItem('speakwise_token');
+      localStorage.removeItem('speakwise_refresh_token');
       localStorage.removeItem('speakwise_sub_expiry');
       localStorage.removeItem('speakwise_sub_plan');
       localStorage.removeItem('speakwise_guest_attempts');
@@ -229,4 +240,55 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (updated) localStorage.setItem('speakwise_user', JSON.stringify(updated));
       return { user: updated };
     }),
+
+  // =========================================================================
+  // CRITICAL POST-PAYMENT STATE SYNCHRONIZATION (REGRESSION GUARD):
+  // After a successful payment, the frontend must immediately re-fetch the user
+  // profile and subscription/usage status from the backend without requiring
+  // the user to manually log out and log back in.
+  // =========================================================================
+  refreshUser: async () => {
+    try {
+      const token = localStorage.getItem('speakwise_token');
+      if (!token) return get().user;
+
+      const res = await apiClient.get('/auth/me');
+      if (res.data?.success && res.data?.data) {
+        const me = res.data.data;
+        const current = get().user;
+        const updated: User = {
+          id: me.id || me._id || current?.id || '',
+          email: me.email || current?.email || '',
+          fullName: me.fullName || current?.fullName || '',
+          avatarUrl: me.avatarUrl || current?.avatarUrl || DEFAULT_AVATAR,
+          role: me.role || current?.role || 'FREE_USER',
+          streakDays: me.streakDays ?? current?.streakDays ?? 1,
+          totalPracticeMinutes: me.totalPracticeMinutes ?? current?.totalPracticeMinutes ?? 0,
+          averageScore: me.averageScore ?? current?.averageScore ?? 85,
+          targetWpm: me.targetWpm ?? current?.targetWpm ?? 145,
+          exp: me.exp ?? current?.exp ?? 250,
+          level: me.level ?? current?.level ?? 1,
+          subscriptionPlan: me.subscriptionPlan || current?.subscriptionPlan,
+          subscriptionExpiresAt: me.subscriptionExpiresAt || current?.subscriptionExpiresAt,
+          createdAt: me.createdAt || current?.createdAt || new Date().toISOString(),
+        };
+        localStorage.setItem('speakwise_user', JSON.stringify(updated));
+        set({ user: updated, isAuthenticated: true });
+        return updated;
+      }
+    } catch (e: any) {
+      console.error('[AUTH refreshUser ERROR] refreshUser failed:', e?.response?.data || e?.message || e);
+      if (e?.response?.status === 401 || e?.response?.status === 404) {
+        get().logout();
+        return null;
+      }
+    }
+    return get().user;
+  },
 }));
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('auth:expired', () => {
+    useAuthStore.getState().logout();
+  });
+}

@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { GuestUsageModel, IGuestUsage } from '../models/GuestUsage.model.js';
 import { UserModel, IUser } from '../models/User.model.js';
+import { PaymentTransactionModel } from '../models/PaymentTransaction.model.js';
+import { UnauthorizedError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
 export interface UsageStatusResult {
@@ -14,6 +16,9 @@ export interface UsageStatusResult {
   message?: string;
   planId?: string;
   expiresAt?: string;
+  isTrialEligible?: boolean;
+  trialEndsAt?: string;
+  planStartsAt?: string;
 }
 
 export class UsageService {
@@ -44,20 +49,77 @@ export class UsageService {
     let user: IUser | null = null;
 
     if (userId) {
-      try {
-        user = await UserModel.findById(userId);
-      } catch (e) {
-        logger.warn('Error fetching user for usage check', e);
+      user = await UserModel.findById(userId);
+      if (!user && req.user?.email) {
+        user = await UserModel.findOne({ email: req.user.email.toLowerCase().trim() });
+      }
+      if (!user && !req.headers['x-demo-user-id']) {
+        throw new UnauthorizedError('User account not found. Session expired.');
       }
     }
 
-    // 1. Pro User (Unlimited)
-    if (user && (user.role === 'PRO_USER' || user.role === 'SUPER_ADMIN' || user.role === 'ORG_ADMIN')) {
-      if (user.role === 'PRO_USER' && user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt).getTime() <= Date.now()) {
-        logger.info(`[USAGE] Pro subscription expired for user ${user._id} on ${user.subscriptionExpiresAt.toISOString()}. Downgrading to FREESTYLE_USER.`);
-        user.role = 'FREESTYLE_USER';
-        await user.save().catch((err) => logger.error('Error auto-downgrading expired user', err));
-      } else {
+    // =========================================================================
+    // CRITICAL REVENUE-SAFETY RULE (REGRESSION GUARD):
+    // NEVER grant Pro access simply because user.role === 'PRO_USER'.
+    // Pro access MUST strictly require a verified future expiry date:
+    // subscriptionExpiresAt > now (paid plan) OR trialEndsAt > now (active trial),
+    // unless the user has administrative privileges (SUPER_ADMIN / ORG_ADMIN).
+    // Users with role 'PRO_USER' but null/expired dates must be downgraded to 'FREE_USER'.
+    // =========================================================================
+    // 1. Pro User Verification (Admin or active paid/trial subscription with future expiration)
+    if (user) {
+      const now = Date.now();
+      const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ORG_ADMIN';
+      const hasActiveSub = Boolean(
+        user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt).getTime() > now
+      );
+      const hasActiveTrial = Boolean(
+        user.trialEndsAt && new Date(user.trialEndsAt).getTime() > now
+      );
+
+      if (isAdmin || hasActiveSub || hasActiveTrial) {
+        return {
+          planType: 'PRO',
+          attemptsUsed: 0,
+          attemptsLeft: 9999,
+          maxAttempts: 9999,
+          canProceed: true,
+          isPro: true,
+          planId: user.subscriptionPlan || (hasActiveTrial ? 'TRIAL_7_DAYS' : undefined),
+          expiresAt: user.subscriptionExpiresAt ? user.subscriptionExpiresAt.toISOString() : undefined,
+          trialEndsAt: user.trialEndsAt ? user.trialEndsAt.toISOString() : undefined,
+          planStartsAt: user.planStartsAt ? user.planStartsAt.toISOString() : undefined,
+          isTrialEligible: false,
+        };
+      }
+
+      // Auto-reconcile with active PaymentTransaction in case user was recreated or payment arrived before user doc
+      const activeTx = await PaymentTransactionModel.findOne({
+        $or: [
+          { userId: user._id },
+          { userEmail: user.email.toLowerCase().trim() },
+        ],
+        status: 'SUCCESS',
+        expiresAt: { $gt: new Date() },
+      }).sort({ expiresAt: -1 });
+
+      if (activeTx) {
+        user.role = 'PRO_USER';
+        user.subscriptionPlan = activeTx.planId;
+        user.subscriptionExpiresAt = activeTx.expiresAt;
+        if (activeTx.notes?.trialEndsAt) {
+          user.trialEndsAt = new Date(activeTx.notes.trialEndsAt);
+          user.hasUsedTrialOffer = true;
+        }
+        if (activeTx.notes?.planStartsAt) {
+          user.planStartsAt = new Date(activeTx.notes.planStartsAt);
+        }
+        if (!activeTx.userId) {
+          activeTx.userId = user._id;
+          await activeTx.save().catch(() => {});
+        }
+        await user.save().catch(() => {});
+
         return {
           planType: 'PRO',
           attemptsUsed: 0,
@@ -66,17 +128,27 @@ export class UsageService {
           canProceed: true,
           isPro: true,
           planId: user.subscriptionPlan,
-          expiresAt: user.subscriptionExpiresAt ? user.subscriptionExpiresAt.toISOString() : undefined,
+          expiresAt: user.subscriptionExpiresAt?.toISOString(),
+          trialEndsAt: user.trialEndsAt?.toISOString(),
+          planStartsAt: user.planStartsAt?.toISOString(),
+          isTrialEligible: false,
         };
+      }
+
+      // If user had role PRO_USER but has no active subscription or trial, fix their role in DB
+      if (user.role === 'PRO_USER') {
+        logger.info(`[USAGE] User ${user._id} (${user.email}) has role PRO_USER without active subscription/trial. Downgrading to FREE_USER.`);
+        user.role = 'FREE_USER';
+        await user.save().catch((err) => logger.error('Error auto-downgrading user without active sub', err));
       }
     }
 
-    // 2. Logged-In User (Freestyle Plan - 10 Total Free Uses including Guest Uses)
+    // 2. Logged-In User (Free Plan - 3 Total Lifetime Free Uses including Guest Uses)
     if (user) {
       const guestUsed = user.guestAttemptsConsumed || 0;
       const freestyleUsed = user.freestyleAttemptsUsed || 0;
       const totalUsed = guestUsed + freestyleUsed;
-      const maxAttempts = 10;
+      const maxAttempts = 3;
       const attemptsLeft = Math.max(0, maxAttempts - totalUsed);
 
       return {
@@ -86,13 +158,14 @@ export class UsageService {
         maxAttempts,
         canProceed: attemptsLeft > 0,
         isPro: false,
+        isTrialEligible: !user.hasUsedTrialOffer && !user.subscriptionPlan,
         message: attemptsLeft > 0 
-          ? `Freestyle: ${attemptsLeft} uses remaining`
-          : "You've reached your 10 Free Freestyle uses limit. Upgrade to Pro Plan starting at ₹99 for Unlimited access!",
+          ? `${attemptsLeft} of 3 free speech analyses remaining`
+          : "All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!",
       };
     }
 
-    // 3. Guest / Free Visitor (3 Attempts per day)
+    // 3. Guest / Free Visitor (3 Lifetime Free Attempts)
     const guestId = this.getOrCreateGuestId(req, res);
     let guestDoc: IGuestUsage | null = null;
 
@@ -102,37 +175,21 @@ export class UsageService {
       logger.warn('MongoDB not available for guest usage check, fallback to memory state');
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    let dailyUsed = 0;
-
-    if (guestDoc) {
-      const lastReset = new Date(guestDoc.lastResetDate).toISOString().split('T')[0];
-      if (lastReset !== today) {
-        // Daily reset
-        dailyUsed = 0;
-        try {
-          guestDoc.dailyAttemptsUsed = 0;
-          guestDoc.lastResetDate = new Date();
-          await guestDoc.save();
-        } catch (e) {}
-      } else {
-        dailyUsed = guestDoc.dailyAttemptsUsed || 0;
-      }
-    }
-
+    const guestUsed = guestDoc ? Math.max(guestDoc.totalAttemptsUsed || 0, guestDoc.dailyAttemptsUsed || 0) : 0;
     const maxAttempts = 3;
-    const attemptsLeft = Math.max(0, maxAttempts - dailyUsed);
+    const attemptsLeft = Math.max(0, maxAttempts - guestUsed);
 
     return {
       planType: 'GUEST',
-      attemptsUsed: dailyUsed,
+      attemptsUsed: guestUsed,
       attemptsLeft,
       maxAttempts,
       canProceed: attemptsLeft > 0,
       isPro: false,
+      isTrialEligible: true,
       message: attemptsLeft > 0
-        ? `Free uses remaining today: ${attemptsLeft}/${maxAttempts}`
-        : "You've used your 3 free guest uses. Sign Up or Log In to get 10 Free Freestyle uses!",
+        ? `${attemptsLeft} of 3 free speech analyses remaining`
+        : "All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!",
     };
   }
 
@@ -142,11 +199,13 @@ export class UsageService {
   static async consumeUsage(req: Request, res?: Response): Promise<UsageStatusResult> {
     const status = await this.getUsageStatus(req, res);
 
+    if (status.isPro) {
+      return status;
+    }
+
     if (!status.canProceed) {
       const err: any = new Error(
-        status.planType === 'GUEST'
-          ? "You've used your 3 free guest uses. Sign Up or Log In to get 10 Free Freestyle uses!"
-          : "You've reached your 10 Free Freestyle uses limit. Upgrade to Pro Plan starting at ₹99 for Unlimited access!"
+        "All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!"
       );
       err.statusCode = 402;
       throw err;
@@ -185,13 +244,16 @@ export class UsageService {
     if (!guestId || !userId) return;
     try {
       const guestDoc = await GuestUsageModel.findOne({ guestId });
-      if (guestDoc && guestDoc.totalAttemptsUsed > 0) {
-        const user = await UserModel.findById(userId);
-        if (user && (!user.guestAttemptsConsumed || user.guestAttemptsConsumed < guestDoc.totalAttemptsUsed)) {
-          user.guestId = guestId;
-          user.guestAttemptsConsumed = guestDoc.totalAttemptsUsed;
-          await user.save();
-          logger.info(`Transferred ${guestDoc.totalAttemptsUsed} guest attempts from ${guestId} to User ${userId}`);
+      if (guestDoc) {
+        const attemptsToTransfer = Math.max(guestDoc.totalAttemptsUsed || 0, guestDoc.dailyAttemptsUsed || 0);
+        if (attemptsToTransfer > 0) {
+          const user = await UserModel.findById(userId);
+          if (user && (!user.guestAttemptsConsumed || user.guestAttemptsConsumed < attemptsToTransfer)) {
+            user.guestId = guestId;
+            user.guestAttemptsConsumed = attemptsToTransfer;
+            await user.save();
+            logger.info(`Transferred ${attemptsToTransfer} guest attempts from ${guestId} to User ${userId}`);
+          }
         }
       }
     } catch (e) {

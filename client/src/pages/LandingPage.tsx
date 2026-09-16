@@ -53,6 +53,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Footer } from '../components/layout/Footer';
+import { HomeSEOContent } from '../components/landing/HomeSEOContent';
 
 const DURATION_OPTIONS = [
   { label: '30s', seconds: 30 },
@@ -66,10 +67,16 @@ export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useThemeStore();
   const { user, isAuthenticated } = useAuthStore();
-  const { isPro, openSubscriptionModal } = useSubscriptionStore();
+  const { isPro, isTrialEligible, freeAttemptsLeft, decrementAttempts, openSubscriptionModal, fetchUsageStatus } = useSubscriptionStore();
 
   const isUserAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN';
   const hasProAccess = isPro || isUserAdmin;
+  const canAnalyze = hasProAccess || freeAttemptsLeft > 0;
+
+  // Refresh usage status on homepage mount so freeAttemptsLeft is always fresh from backend
+  useEffect(() => {
+    fetchUsageStatus();
+  }, [fetchUsageStatus]);
 
   // Selected duration (default 60 seconds)
   const [selectedDuration, setSelectedDuration] = useState<number>(60);
@@ -297,12 +304,12 @@ export const LandingPage: React.FC = () => {
     const actualDuration = Math.max(1, elapsedSecondsRef.current || elapsedSeconds);
     const spokenTranscript = (liveTranscriptRef.current || liveTranscript).trim();
 
-    if (!hasProAccess) {
-      // Free/Guest users see the Pro pass upgrade prompt directly
+    if (!canAnalyze) {
+      // All 3 free speech analyses used up -> show upgrade/trial prompt directly
       return;
     }
 
-    // Pro users receive real-time speech evaluation based strictly on what was spoken
+    // Pro users or users with free analyses remaining receive real-time speech evaluation
     setIsAnalyzing(true);
     try {
       const evalResult = await SpeechEvaluatorService.evaluateSpeech({
@@ -321,6 +328,16 @@ export const LandingPage: React.FC = () => {
 
       setAnalysisReport(report);
       useReportStore.getState().saveReport(report);
+
+      // =========================================================================
+      // CRITICAL USAGE CONSUMPTION RULE (REGRESSION GUARD):
+      // Must await decrementAttempts() to synchronize the attempt counter with the DB
+      // immediately upon analysis completion, ensuring "X uses left" decrements
+      // and blocks the 4th attempt cleanly.
+      // =========================================================================
+      if (!hasProAccess) {
+        await decrementAttempts();
+      }
     } catch (err) {
       console.error('Speech evaluation failed:', err);
     } finally {
@@ -951,8 +968,8 @@ export const LandingPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Case 1: USER IS PRO -> SHOW REAL SPEECH ANALYSIS OR ANALYZING STATE */}
-                {hasProAccess ? (
+                {/* Case 1: USER HAS ACCESS OR HAS REPORT -> SHOW REAL SPEECH ANALYSIS OR ANALYZING STATE */}
+                {(hasProAccess || isAnalyzing || analysisReport) ? (
                   isAnalyzing ? (
                     <div className="py-8 space-y-4 text-center">
                       <div className="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-600 animate-spin mx-auto shadow-neu-glow" />
@@ -1144,6 +1161,41 @@ export const LandingPage: React.FC = () => {
                             Open Detailed Report Page
                           </Button>
                         </Link>
+                        {/* Free Tier Remaining Uses Indicator / Handoff */}
+                        {!hasProAccess && (
+                          <div className="p-3 rounded-2xl neu-flat-sm text-xs text-center border border-amber-500/30">
+                            {freeAttemptsLeft > 0 ? (
+                              <span className="font-extrabold text-amber-700 dark:text-amber-400">
+                                ⚡ {freeAttemptsLeft} {freeAttemptsLeft === 1 ? 'use' : 'uses'} left on your free tier
+                              </span>
+                            ) : (
+                              <div className="space-y-1.5 text-left">
+                                <div className="flex items-center gap-1.5 font-black text-indigo-700 dark:text-indigo-300 text-xs">
+                                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                  <span>All 3 Free Analyses Completed!</span>
+                                </div>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+                                  {isTrialEligible
+                                    ? 'Get 7 full days of unlimited analyses, scorecards, and drills for just ₹1.'
+                                    : 'Upgrade to Pro starting at ₹9 to continue getting full analyses.'}
+                                </p>
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  onClick={() => {
+                                    setShowCompletionModal(false);
+                                    openSubscriptionModal();
+                                  }}
+                                  className="w-full rounded-full py-2 text-xs font-extrabold justify-center shadow-md shadow-indigo-600/20"
+                                  leftIcon={<Crown className="w-3.5 h-3.5 text-amber-300" />}
+                                >
+                                  {isTrialEligible ? 'Get Pro at ₹1 for 7 Days' : 'Upgrade to Pro — From ₹9'}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <button
                           onClick={() => {
                             setShowCompletionModal(false);
@@ -1157,15 +1209,17 @@ export const LandingPage: React.FC = () => {
                     </div>
                   ) : null
                 ) : (
-                  /* Case 2: USER IS NOT PRO -> TELL TO MAKE PRO */
+                  /* Case 2: ALL 3 FREE ANALYSES USED UP -> PROMPT ₹1 TRIAL OR PASS UPGRADE */
                   <div className="space-y-4">
                     <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-left space-y-2">
                       <div className="flex items-center gap-2 text-xs font-black text-indigo-700 dark:text-indigo-300 uppercase">
                         <Crown className="w-4 h-4 text-amber-500" />
-                        <span>Make Pro to Unlock Speech Analysis</span>
+                        <span>All 3 Free Analyses Used</span>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                        Upgrade to Pro to view your instant AI speech scorecard (Overall %, Grammar %, Fluency %, Vocabulary %, Confidence %), plus detailed areas for improvement and actionable practice drills!
+                        {isTrialEligible
+                          ? 'You have used all 3 free speech analyses. Unlock 7 full days of unlimited AI speech scorecards, grammar diagnosis, and personalized drills for just ₹1!'
+                          : 'You have used all 3 free speech analyses. Upgrade to Pro starting at ₹9 to unlock unlimited AI speech evaluations and practice drills.'}
                       </p>
                     </div>
 
@@ -1177,9 +1231,9 @@ export const LandingPage: React.FC = () => {
                               size="lg"
                               variant="primary"
                               className="w-full rounded-full py-3.5 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
-                              leftIcon={<UserPlus className="w-4 h-4" />}
+                              leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
                             >
-                              Sign Up Free (Unlock Pro Pass)
+                              {isTrialEligible ? 'Sign Up & Get Pro @ ₹1 Trial' : 'Sign Up to Unlock Plans'}
                             </Button>
                           </Link>
 
@@ -1217,7 +1271,7 @@ export const LandingPage: React.FC = () => {
                           className="w-full rounded-full py-3.5 text-xs font-extrabold justify-center"
                           leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
                         >
-                          Make Pro (Starting ₹9 Flash Pass)
+                          {isTrialEligible ? 'Get Pro at ₹1 for 7 Days' : 'Upgrade to Pro (From ₹9)'}
                         </Button>
                       )}
 
@@ -1238,6 +1292,9 @@ export const LandingPage: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Homepage SEO Content (Feature Showcase, Target Audience, and FAQ Accordion) */}
+      <HomeSEOContent />
 
       {/* Homepage Footer with Compliance & Payment Links */}
       <div className="w-full -mx-4 sm:-mx-6 lg:-mx-8 mt-16">

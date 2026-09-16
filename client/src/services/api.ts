@@ -28,10 +28,30 @@ const API_BASE = getApiBaseUrl();
 
 export const apiClient = axios.create({
   baseURL: API_BASE,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// =========================================================================
+// CRITICAL REVENUE-SAFETY RULE (REGRESSION GUARD):
+// Guest sessions MUST have a stable, persisted guestId in localStorage.
+// Without this, every request generates a new guest record, resetting the
+// 3-use free tier counter back to 3 and allowing infinite analyses!
+// =========================================================================
+export const getOrCreateGuestId = (): string => {
+  try {
+    let guestId = localStorage.getItem('speakwise_guest_id');
+    if (!guestId) {
+      guestId = 'gst_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+      localStorage.setItem('speakwise_guest_id', guestId);
+    }
+    return guestId;
+  } catch (e) {
+    return 'gst_fallback_' + Date.now();
+  }
+};
 
 apiClient.interceptors.request.use(
   (config) => {
@@ -39,13 +59,114 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    const guestId = localStorage.getItem('speakwise_guest_id');
-    if (guestId) {
-      config.headers['x-guest-id'] = guestId;
-    }
+    const guestId = getOrCreateGuestId();
+    config.headers['x-guest-id'] = guestId;
+
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// =========================================================================
+// CRITICAL POST-PAYMENT & SESSION REFRESH FLOW (REGRESSION GUARD):
+// When an access token expires (401 with code 'TOKEN_EXPIRED'), the response
+// interceptor catches it, calls /auth/refresh with the refresh token, updates
+// localStorage with the new access token, and retries the original request.
+// This prevents silent fallback to GUEST status and eliminates logout requirements.
+// =========================================================================
+let isRefreshing = false;
+let refreshSubscribers: Array<(token: string) => void> = [];
+
+const subscribeTokenRefresh = (cb: (token: string) => void) => {
+  refreshSubscribers.push(cb);
+};
+
+const onRefreshed = (token: string) => {
+  refreshSubscribers.forEach((cb) => cb(token));
+  refreshSubscribers = [];
+};
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (!originalRequest) return Promise.reject(error);
+
+    const isTokenExpired =
+      error.response?.status === 401 &&
+      (error.response?.data?.code === 'TOKEN_EXPIRED' ||
+        error.response?.data?.error === 'Token expired' ||
+        error.response?.data?.message?.toLowerCase().includes('jwt expired') ||
+        error.response?.data?.message?.toLowerCase().includes('token expired'));
+
+    // Only retry if token expired, hasn't been retried yet, and isn't the refresh request itself
+    if (isTokenExpired && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh')) {
+      originalRequest._retry = true;
+
+      if (isRefreshing) {
+        // If another request is already refreshing, wait for it to complete
+        return new Promise((resolve) => {
+          subscribeTokenRefresh((newToken: string) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            resolve(apiClient(originalRequest));
+          });
+        });
+      }
+
+      isRefreshing = true;
+
+      try {
+        const refreshToken = localStorage.getItem('speakwise_refresh_token');
+        console.log('[AUTH REFRESH] 🔄 Access token expired. Auto-refreshing via /auth/refresh...');
+
+        // Direct axios call to avoid recursion through apiClient interceptors
+        const refreshResponse = await axios.post(
+          `${API_BASE}/auth/refresh`,
+          { refreshToken },
+          { withCredentials: true }
+        );
+
+        const newAccessToken = refreshResponse.data?.data?.accessToken;
+        const newRefreshToken = refreshResponse.data?.data?.refreshToken;
+
+        if (newAccessToken) {
+          localStorage.setItem('speakwise_token', newAccessToken);
+          if (newRefreshToken) {
+            localStorage.setItem('speakwise_refresh_token', newRefreshToken);
+          }
+          console.log('[AUTH REFRESH] ✅ Session refreshed successfully. Retrying failed request:', originalRequest.url);
+          onRefreshed(newAccessToken);
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return apiClient(originalRequest);
+        } else {
+          throw new Error('Refresh response missing new access token');
+        }
+      } catch (refreshErr) {
+        console.error('[AUTH REFRESH] ❌ Auto-refresh failed. Clearing expired tokens:', refreshErr);
+        refreshSubscribers = [];
+        localStorage.removeItem('speakwise_token');
+        localStorage.removeItem('speakwise_refresh_token');
+        localStorage.removeItem('speakwise_user');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth:expired'));
+        }
+        return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    if (error.response?.status === 401 && !isTokenExpired) {
+      localStorage.removeItem('speakwise_token');
+      localStorage.removeItem('speakwise_refresh_token');
+      localStorage.removeItem('speakwise_user');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:expired'));
+      }
+    }
+
+    return Promise.reject(error);
+  }
 );
 
 

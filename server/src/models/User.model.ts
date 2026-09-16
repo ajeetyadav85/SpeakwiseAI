@@ -37,10 +37,16 @@ const UserSchema: Schema = new Schema(
     email: { type: String, required: true, unique: true, index: true, lowercase: true },
     passwordHash: { type: String, required: true },
     fullName: { type: String, required: true },
+    // =========================================================================
+    // CRITICAL REVENUE-SAFETY RULE (REGRESSION GUARD):
+    // DO NOT change default role to 'PRO_USER'. New users MUST default to 'FREE_USER'.
+    // Pro access is granted ONLY when a valid, non-expired future subscription
+    // or trial date (subscriptionExpiresAt / trialEndsAt > now) exists.
+    // =========================================================================
     role: {
       type: String,
       enum: ['SUPER_ADMIN', 'ORG_ADMIN', 'PRO_USER', 'FREESTYLE_USER', 'FREE_USER'],
-      default: 'PRO_USER',
+      default: 'FREE_USER',
     },
     authProvider: {
       type: String,

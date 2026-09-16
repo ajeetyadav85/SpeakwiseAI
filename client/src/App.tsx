@@ -23,6 +23,8 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { DisclaimerPage } from './pages/DisclaimerPage';
 import { ContactUsPage } from './pages/ContactUsPage';
+import { ImpromptuSpeakingLandingPage } from './pages/ImpromptuSpeakingLandingPage';
+import { BestEnglishAppLandingPage } from './pages/BestEnglishAppLandingPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { FloatingThemeToggle } from './components/common/FloatingThemeToggle';
 
@@ -61,7 +63,15 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 // Main Layout Component
 const AppLayout: React.FC = () => {
   const location = useLocation();
+  const { isAuthenticated, refreshUser } = useAuthStore();
   const hideNavbar = ['/login', '/register'].includes(location.pathname);
+
+  // Validate session on app startup / mount to purge zombie sessions if user was deleted
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshUser();
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] font-sans flex flex-col transition-colors duration-200">
@@ -78,6 +88,8 @@ const AppLayout: React.FC = () => {
           <Route path="/disclaimer" element={<DisclaimerPage />} />
           <Route path="/terms" element={<DisclaimerPage />} />
           <Route path="/contact" element={<ContactUsPage />} />
+          <Route path="/impromptu-speaking-practice" element={<ImpromptuSpeakingLandingPage />} />
+          <Route path="/best-english-speaking-practice-app" element={<BestEnglishAppLandingPage />} />
 
 
           {/* Protected Application Routes */}

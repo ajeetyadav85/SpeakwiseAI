@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { apiClient } from '../services/api';
 import { SubscriptionPlanId, SubscriptionPlanOption } from '../types';
+import { useAuthStore } from './useAuthStore';
 
 export type PlanType = 'GUEST' | 'FREESTYLE' | 'PRO';
 
@@ -118,7 +119,7 @@ interface SubscriptionState {
   resetSubscription: () => void;
   fetchUsageStatus: () => Promise<UsageStatusResponse>;
   decrementAttempts: () => Promise<boolean>;
-  upgradeToPro: (planId?: SubscriptionPlanId, durationHours?: number, explicitExpiresAt?: string) => void;
+  upgradeToPro: (planId?: SubscriptionPlanId, durationHours?: number, explicitExpiresAt?: string, planStartsAt?: string, trialEndsAt?: string) => void;
   openSubscriptionModal: () => void;
   closeSubscriptionModal: () => void;
   openUpgradeLimitModal: () => void;
@@ -142,7 +143,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   trialEndsAt: null,
   planStartsAt: null,
   canProceed: true,
-  message: 'Free uses remaining: 3/3',
+  message: '3 uses left',
   activePlanId: null,
   planExpiresAt: null,
   subscriptionModalOpen: false,
@@ -164,7 +165,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       trialEndsAt: null,
       planStartsAt: null,
       canProceed: true,
-      message: 'Free uses remaining: 3/3',
+      message: '3 uses left',
       activePlanId: null,
       planExpiresAt: null,
       subscriptionModalOpen: false,
@@ -189,12 +190,27 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
         trialEndsAt: data.trialEndsAt || null,
         planStartsAt: data.planStartsAt || null,
         canProceed: isPro || Boolean(data.canProceed),
-        message: data.message || (isPro ? 'Pro Active' : `Remaining: ${data.attemptsLeft ?? 3}/${data.maxAttempts ?? 3}`),
+        message: data.message || (isPro ? 'Pro Active' : `${data.attemptsLeft ?? 3} ${(data.attemptsLeft ?? 3) === 1 ? 'use' : 'uses'} left`),
         activePlanId: isPro ? (data.planId || null) : null,
         planExpiresAt: isPro ? (data.expiresAt || null) : null,
       });
+
+      // Synchronize auth store user with verified backend subscription status
+      const authUser = useAuthStore.getState().user;
+      if (authUser) {
+        useAuthStore.getState().updateUser({
+          role: isPro ? 'PRO_USER' : (authUser.role === 'SUPER_ADMIN' || authUser.role === 'ORG_ADMIN' ? authUser.role : 'FREE_USER'),
+          subscriptionPlan: isPro ? (data.planId || authUser.subscriptionPlan) : undefined,
+          subscriptionExpiresAt: isPro ? (data.expiresAt || authUser.subscriptionExpiresAt) : undefined,
+        });
+      }
+
       return { ...data, isPro, isTrialEligible, canProceed: isPro || Boolean(data.canProceed) };
-    } catch (err) {
+    } catch (err: any) {
+      console.error('[SUB fetchUsageStatus ERROR] /usage/status failed:', err?.response?.data || err?.message || err);
+      if (err?.response?.status === 401) {
+        useAuthStore.getState().logout();
+      }
       // Offline fallback: never assume Pro without server confirmation
       set({
         planType: 'GUEST',
@@ -236,7 +252,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
         attemptsUsed: data.attemptsUsed,
         isPro: isProResult,
         canProceed: data.canProceed,
-        message: data.message || `Remaining: ${data.attemptsLeft}/${data.maxAttempts}`,
+        message: data.message || `${data.attemptsLeft} ${data.attemptsLeft === 1 ? 'use' : 'uses'} left`,
       });
 
       if (!data.canProceed && !isProResult) {
@@ -262,10 +278,18 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     }
   },
 
+  // =========================================================================
+  // CRITICAL PRO STATUS UPDATE RULE (REGRESSION GUARD):
+  // When payment succeeds, upgradeToPro sets pro state, planExpiresAt,
+  // planStartsAt, and trialEndsAt immediately so UI renders timer without delay,
+  // then triggers fetchUsageStatus() to synchronize DB state.
+  // =========================================================================
   upgradeToPro: (
     planId: SubscriptionPlanId = '1_MONTH',
     durationHours: number = 720,
-    explicitExpiresAt?: string
+    explicitExpiresAt?: string,
+    planStartsAt?: string,
+    trialEndsAt?: string
   ) => {
     let finalExpiresAt: string;
 
@@ -280,14 +304,25 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       planType: 'PRO',
       activePlanId: planId,
       planExpiresAt: finalExpiresAt,
+      planStartsAt: planStartsAt || (planId === 'TRIAL_7_DAYS' ? new Date().toISOString() : get().planStartsAt),
+      trialEndsAt: trialEndsAt || (planId === 'TRIAL_7_DAYS' ? finalExpiresAt : get().trialEndsAt),
       freeAttemptsLeft: 9999,
       maxAttempts: 9999,
       attemptsUsed: 0,
       canProceed: true,
-      subscriptionModalOpen: false,
       upgradeLimitModalOpen: false,
       message: 'Pro Active',
     });
+
+    // Immediately synchronize auth store user as well
+    const authUser = useAuthStore.getState().user;
+    if (authUser) {
+      useAuthStore.getState().updateUser({
+        role: 'PRO_USER',
+        subscriptionPlan: planId,
+        subscriptionExpiresAt: finalExpiresAt,
+      });
+    }
 
     // Re-verify fresh status against backend
     get().fetchUsageStatus();

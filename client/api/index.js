@@ -1,6 +1,29 @@
 // ==============================================================================
 // SpeakWise AI — Consolidated Vercel Serverless Express API Entrypoint
 // Single Serverless Function replacing all separate files in /api
+//
+// Cross-reference of Vercel Serverless Endpoints vs. Local Express Routes:
+// ------------------------------------------------------------------------------
+// Serverless Route                       | Local Express Controller / Route
+// ------------------------------------------------------------------------------
+// POST /api/v1/auth/google               | auth.controller.ts (googleLoginController)
+// POST /api/v1/auth/login                | auth.controller.ts (loginController)
+// POST /api/v1/auth/register             | auth.controller.ts (registerController)
+// GET  /api/v1/auth/me                   | auth.controller.ts (getMeController)
+// POST /api/v1/auth/send-verification    | auth.controller.ts (sendVerificationController)
+// POST /api/v1/auth/verify-email         | auth.controller.ts (verifyEmailController)
+// POST /api/v1/auth/forgot-password      | auth.controller.ts (forgotPasswordController)
+// POST /api/v1/auth/verify-reset-otp     | auth.controller.ts (verifyResetOtpController)
+// POST /api/v1/auth/reset-password       | auth.controller.ts (resetPasswordController)
+// POST /api/v1/create-order              | subscription.controller.ts (createOrderController)
+// POST /api/v1/subscription/create-order | subscription.controller.ts (createOrderController)
+// POST /api/v1/verify-payment            | subscription.controller.ts (verifyPaymentController)
+// POST /api/v1/subscription/verify-payment | subscription.controller.ts (verifyPaymentController)
+// GET  /api/v1/usage/status              | usage.controller.ts (getStatusController)
+// POST /api/v1/usage/consume             | usage.controller.ts (consumeController)
+// GET  /api/v1/content/random            | content.controller.ts (getRandomContentController)
+// GET  /api/v1/content/categories        | content.controller.ts (getCategoriesController)
+// GET  /api/v1/health                    | app.ts health handler
 // ==============================================================================
 
 const crypto = require('crypto');
@@ -153,6 +176,37 @@ if (mongoose) {
   );
 
   GuestUsageModel = mongoose.models.GuestUsage || mongoose.model('GuestUsage', guestUsageSchema);
+
+  const paymentTransactionSchema = new mongoose.Schema(
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+      userEmail: { type: String, required: true, index: true },
+      userName: { type: String, default: '' },
+      orderId: { type: String, required: true, index: true },
+      paymentId: { type: String, required: true, index: true },
+      planId: {
+        type: String,
+        required: true,
+        enum: ['TRIAL_7_DAYS', '1_DAY', '1_WEEK', '1_MONTH', '3_MONTH', '6_MONTH', '1_YEAR', 'PRO_MONTHLY'],
+      },
+      amount: { type: Number, required: true },
+      currency: { type: String, default: 'INR' },
+      status: {
+        type: String,
+        enum: ['SUCCESS', 'PENDING', 'FAILED'],
+        default: 'SUCCESS',
+        index: true,
+      },
+      paymentMethod: { type: String, default: 'RAZORPAY_GATEWAY' },
+      durationHours: { type: Number, required: true },
+      paidAt: { type: Date, default: Date.now },
+      expiresAt: { type: Date, required: true },
+      notes: { type: mongoose.Schema.Types.Mixed, default: {} },
+    },
+    { timestamps: true }
+  );
+
+  PaymentTransactionModel = mongoose.models.PaymentTransaction || mongoose.model('PaymentTransaction', paymentTransactionSchema);
 }
 
 // ==============================================================================
@@ -957,6 +1011,10 @@ async function handleVerifyPayment(req, res) {
     razorpay_order_id,
     razorpay_signature,
     planId = '1_MONTH',
+    planType = 'PRO',
+    paymentMethod = 'RAZORPAY_GATEWAY',
+    userEmail,
+    userName,
     currentExpiresAt,
   } = req.body || {};
 
@@ -1079,18 +1137,55 @@ async function handleVerifyPayment(req, res) {
     }
   }
 
+  // Record Transaction into MongoDB (matching server subscription.controller.ts)
+  let savedTransaction = null;
+  try {
+    const db = await connectDB();
+    if (db && PaymentTransactionModel) {
+      const effectiveEmail = dbUser?.email || (userIdentifier && userIdentifier.includes('@') ? userIdentifier : userEmail) || 'customer@speakwise.ai';
+      const effectiveName = dbUser?.fullName || userName || payload?.fullName || 'Valued Speaker';
+
+      savedTransaction = await PaymentTransactionModel.create({
+        userId: dbUser ? dbUser._id : undefined,
+        userEmail: effectiveEmail.toLowerCase().trim(),
+        userName: effectiveName,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        planId,
+        amount: planPriceInr,
+        currency: 'INR',
+        status: 'SUCCESS',
+        paymentMethod: paymentMethod || 'RAZORPAY_GATEWAY',
+        durationHours,
+        paidAt: new Date(nowMs),
+        expiresAt,
+        notes: {
+          planType: planType || 'PRO',
+          verifiedAt: new Date(nowMs).toISOString(),
+          isSignatureVerified: true,
+          stackedFromPreviousExpiry: baseTimeMs !== nowMs,
+          planStartsAt: finalPlanStartsAt.toISOString(),
+          ...(finalTrialEndsAt ? { trialEndsAt: finalTrialEndsAt.toISOString() } : {}),
+        },
+      });
+      console.log(`[VERCEL PAYMENT] ✅ Saved PaymentTransaction ${savedTransaction._id} to MongoDB`);
+    }
+  } catch (dbErr) {
+    console.error(`[VERCEL PAYMENT] ❌ Failed saving transaction to DB: ${dbErr?.message}`);
+  }
+
   return res.status(200).json({
     success: true,
     message: 'Payment verified successfully',
     data: {
-      transactionId: razorpay_payment_id,
+      transactionId: savedTransaction?._id ? savedTransaction._id.toString() : razorpay_payment_id,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
       status: 'SUCCESS',
       isSignatureVerified: true,
       isPro: true,
       planId: planId,
-      paidAt: new Date().toISOString(),
+      paidAt: new Date(nowMs).toISOString(),
       expiresAt: expiresAt.toISOString(),
       planStartsAt: finalPlanStartsAt ? finalPlanStartsAt.toISOString() : undefined,
       trialEndsAt: finalTrialEndsAt ? finalTrialEndsAt.toISOString() : undefined,

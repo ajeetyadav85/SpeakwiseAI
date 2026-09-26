@@ -1,6 +1,19 @@
-import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+
+// Lazy dynamic loader for nodemailer to prevent compilation failures in CI / serverless deployment environments
+let nodemailerModule: any = null;
+const getNodemailer = async (): Promise<any> => {
+  if (nodemailerModule) return nodemailerModule;
+  try {
+    // @ts-ignore
+    const mod = await import('nodemailer');
+    nodemailerModule = mod.default || mod;
+    return nodemailerModule;
+  } catch {
+    return null;
+  }
+};
 
 export interface SendEmailOptions {
   to: string;
@@ -31,6 +44,33 @@ class EmailService {
     return Boolean(env.SMTP_HOST && (env.SMTP_USER || env.SMTP_PASS));
   }
 
+  private async getTransporter(): Promise<any> {
+    if (this.transporter) return this.transporter;
+    if (!this.hasSmtpConfig()) return null;
+
+    const nodemailer = await getNodemailer();
+    if (!nodemailer) {
+      logger.error('[EmailService] SMTP credentials provided, but nodemailer package is not available.');
+      return null;
+    }
+
+    try {
+      this.transporter = nodemailer.createTransport({
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT,
+        secure: env.SMTP_SECURE,
+        auth: {
+          user: env.SMTP_USER,
+          pass: env.SMTP_PASS,
+        },
+      });
+      return this.transporter;
+    } catch (err: any) {
+      logger.error(`[EmailService] Failed to initialize SMTP transporter: ${err.message}`);
+      return null;
+    }
+  }
+
   private initTransport() {
     const resendApiKey = this.getResendApiKey();
 
@@ -40,22 +80,8 @@ class EmailService {
     }
 
     if (this.hasSmtpConfig()) {
-      try {
-        this.transporter = nodemailer.createTransport({
-          host: env.SMTP_HOST,
-          port: env.SMTP_PORT,
-          secure: env.SMTP_SECURE,
-          auth: {
-            user: env.SMTP_USER,
-            pass: env.SMTP_PASS,
-          },
-        });
-        logger.info(`[EmailService] Configured SMTP transporter with host: ${env.SMTP_HOST}:${env.SMTP_PORT}`);
-        return;
-      } catch (err: any) {
-        logger.error(`[EmailService] Failed to initialize SMTP transporter: ${err.message}`);
-        this.transporter = null;
-      }
+      logger.info(`[EmailService] Configured for SMTP delivery (Host: ${env.SMTP_HOST}:${env.SMTP_PORT}).`);
+      return;
     }
 
     logger.info('[EmailService] Neither Resend API key nor SMTP credentials provided. Running in development console log mode.');
@@ -101,35 +127,23 @@ class EmailService {
 
     // 2. SMTP is only used when SMTP credentials are configured and Resend is not being used.
     if (this.hasSmtpConfig()) {
-      if (!this.transporter) {
+      const transporter = await this.getTransporter();
+      if (transporter) {
         try {
-          this.transporter = nodemailer.createTransport({
-            host: env.SMTP_HOST,
-            port: env.SMTP_PORT,
-            secure: env.SMTP_SECURE,
-            auth: {
-              user: env.SMTP_USER,
-              pass: env.SMTP_PASS,
-            },
+          const info = await transporter.sendMail({
+            from,
+            to,
+            subject,
+            text: text || html.replace(/<[^>]*>?/gm, ''),
+            html,
           });
+          logger.info(`[EmailService] Email delivered via SMTP to ${to} (MessageID: ${info.messageId})`);
+          return { success: true, messageId: info.messageId };
         } catch (err: any) {
-          logger.error(`[EmailService] Failed to initialize SMTP transporter: ${err.message}`);
+          logger.error(`[EmailService] SMTP send error to ${to}: ${err.message}`);
           return { success: false };
         }
-      }
-
-      try {
-        const info = await this.transporter.sendMail({
-          from,
-          to,
-          subject,
-          text: text || html.replace(/<[^>]*>?/gm, ''),
-          html,
-        });
-        logger.info(`[EmailService] Email delivered via SMTP to ${to} (MessageID: ${info.messageId})`);
-        return { success: true, messageId: info.messageId };
-      } catch (err: any) {
-        logger.error(`[EmailService] SMTP send error to ${to}: ${err.message}`);
+      } else {
         return { success: false };
       }
     }

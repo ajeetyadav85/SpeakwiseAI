@@ -18,12 +18,14 @@
     "protobufjs@7.6.5": true
   },
   "devDependencies": {
+    "@types/nodemailer": "^6.4.16",
     "concurrently": "^8.2.2"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "mongoose": "^8.7.2",
+    "nodemailer": "^6.9.15",
     "razorpay": "^2.9.8"
   }
 }

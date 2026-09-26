@@ -1,3 +1,7 @@
+import dns from 'dns';
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch {}
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
@@ -31,6 +35,7 @@ async function runTokenRefreshRegressionTest() {
     let currentRefreshToken = authRes.tokens.refreshToken;
 
     console.log(`- Created user ID: ${userId} (${testEmail})`);
+    await UserModel.findByIdAndUpdate(userId, { emailVerified: true });
     console.log(`- Initial Access Token snippet: ${initialAccessToken.slice(0, 20)}...`);
     console.log(`- Initial Refresh Token snippet: ${currentRefreshToken.slice(0, 20)}...`);
 

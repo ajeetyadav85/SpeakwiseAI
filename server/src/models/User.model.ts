@@ -27,6 +27,13 @@ export interface IUser extends Document {
   trialEndsAt?: Date;
   planStartsAt?: Date;
   refreshTokenHash?: string;
+  emailVerified?: boolean;
+  emailVerificationTokenHash?: string;
+  emailVerificationExpires?: Date;
+  verificationAttempts?: number;
+  resetPasswordTokenHash?: string;
+  resetPasswordExpires?: Date;
+  resetAttempts?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -80,6 +87,13 @@ const UserSchema: Schema = new Schema(
     trialEndsAt: { type: Date, default: null },
     planStartsAt: { type: Date, default: null },
     refreshTokenHash: { type: String, select: false },
+    emailVerified: { type: Boolean, default: false },
+    emailVerificationTokenHash: { type: String, select: false },
+    emailVerificationExpires: { type: Date, default: null },
+    verificationAttempts: { type: Number, default: 0 },
+    resetPasswordTokenHash: { type: String, select: false },
+    resetPasswordExpires: { type: Date, default: null },
+    resetAttempts: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

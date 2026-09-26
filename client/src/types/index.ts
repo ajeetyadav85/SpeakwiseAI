@@ -30,6 +30,8 @@ export interface User {
   level?: number;
   subscriptionPlan?: SubscriptionPlanId;
   subscriptionExpiresAt?: string;
+  emailVerified?: boolean;
+  authProvider?: string;
   createdAt: string;
 }
 

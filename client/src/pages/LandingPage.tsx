@@ -12,6 +12,7 @@ import {
   GoalTopicItem,
   createCustomPrompt,
 } from '../data/goalTopicsData';
+import { ContentApiService } from '../services/contentApi.service';
 import {
   Sparkles,
   Zap,
@@ -113,6 +114,10 @@ export const LandingPage: React.FC = () => {
   // Reference to scroll to practice card if needed
   const practiceCardRef = useRef<HTMLDivElement>(null);
 
+  // Dynamic prompt from backend / database
+  const [currentPrompt, setCurrentPrompt] = useState<GoalTopicItem | null>(null);
+  const [isSpinningPrompt, setIsSpinningPrompt] = useState<boolean>(false);
+
   // Determine current active goal and prompt list
   const activeGoal = GOAL_CATEGORIES.find((g) => g.id === selectedGoalId) || GOAL_CATEGORIES[0];
   const activePromptsList: GoalTopicItem[] =
@@ -123,11 +128,44 @@ export const LandingPage: React.FC = () => {
       : activeGoal.prompts;
 
   const safePromptIndex = currentPromptIndex % activePromptsList.length;
-  const activePrompt: GoalTopicItem = activePromptsList[safePromptIndex] || activeGoal.prompts[0];
+  const activePrompt: GoalTopicItem =
+    selectedGoalId === 'custom'
+      ? activePromptsList[safePromptIndex] || activeGoal.prompts[0]
+      : (currentPrompt && currentPrompt.category === activeGoal.name)
+        ? currentPrompt
+        : activePromptsList[safePromptIndex] || activeGoal.prompts[0];
 
   // Spin to next prompt in current goal
-  const handleNextPrompt = () => {
-    if (isPracticing) return;
+  const handleNextPrompt = async () => {
+    if (isPracticing || isSpinningPrompt) return;
+
+    if (selectedGoalId === 'custom') {
+      setCurrentPromptIndex((prev) => (prev + 1) % activePromptsList.length);
+      return;
+    }
+
+    setIsSpinningPrompt(true);
+    try {
+      const item = await ContentApiService.getRandomContent('TOPIC', activeGoal.name);
+      if (item && item.title) {
+        setCurrentPrompt({
+          id: item.id || 'db_' + Date.now(),
+          category: activeGoal.name,
+          categoryEmoji: activeGoal.emoji,
+          type: 'TOPIC',
+          prompt: item.title,
+          hint: item.hint || activeGoal.prompts[0]?.hint || 'Structure your talk with a clear beginning, middle, and end.',
+          suggestedDurationSeconds: item.suggestedDurationSeconds || 60,
+        });
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch prompt from backend, using local fallback:', err);
+    } finally {
+      setIsSpinningPrompt(false);
+    }
+
+    // Fallback if offline
     setCurrentPromptIndex((prev) => (prev + 1) % activePromptsList.length);
   };
 
@@ -136,6 +174,7 @@ export const LandingPage: React.FC = () => {
     if (isPracticing) return;
     setSelectedGoalId(goalId);
     setCurrentPromptIndex(0);
+    setCurrentPrompt(null);
   };
 
   // Add custom user-written topic or word
@@ -495,11 +534,14 @@ export const LandingPage: React.FC = () => {
                     </div>
                     <button
                       onClick={handleNextPrompt}
-                      className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline"
+                      disabled={isSpinningPrompt}
+                      className={`flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline ${
+                        isSpinningPrompt ? 'opacity-70 cursor-not-allowed' : ''
+                      }`}
                       title="Spin to next prompt in this category"
                     >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Spin Next Topic</span>
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSpinningPrompt ? 'animate-spin' : ''}`} />
+                      <span>{isSpinningPrompt ? 'Spinning...' : 'Spin Next Topic'}</span>
                     </button>
                   </div>
 

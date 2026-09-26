@@ -19,6 +19,13 @@ This document provides detailed descriptions and security requirements for all e
 | `JWT_REFRESH_SECRET`| Yes | `min 32 chars string` | Cryptographic secret for signing long-lived refresh tokens. |
 | `OPENAI_API_KEY` | Optional | `sk-proj-xxx` | OpenAI API key for Whisper STT and GPT-4o evaluation. |
 | `GEMINI_API_KEY` | Optional | `AIzaSy-xxx` | Google Gemini API key for cost-optimized speech reasoning. |
+| `SMTP_HOST` | Optional | `smtp.gmail.com` | SMTP host for email verification and password reset. |
+| `SMTP_PORT` | Optional | `587` | SMTP port (typically 587 for TLS, 465 for SSL). |
+| `SMTP_USER` | Optional | `user@domain.com` | SMTP authentication username / email. |
+| `SMTP_PASS` | Optional | `secret` | SMTP authentication password / App password. |
+| `SMTP_SECURE` | Optional | `false` | Set to `true` for port 465 SSL connections. |
+| `EMAIL_FROM` | Optional | `SpeakWise AI <noreply@speakwise.ai>` | Sender name & email address. |
+| `RESEND_API_KEY` | Optional | `re_xxx` | Alternative HTTP API key for Resend email delivery. |
 
 ---
 

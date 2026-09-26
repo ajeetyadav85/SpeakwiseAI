@@ -30,5 +30,13 @@ export const env = {
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || 'rzp_live_TaDSoq9X70XrEX',
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || 'Myvp7zXzgAwvoiV7O16C1Yrh',
   RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || 'Myvp7zXzgAwvoiV7O16C1Yrh',
+  SMTP_HOST: process.env.SMTP_HOST || '',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  SMTP_SECURE: process.env.SMTP_SECURE === 'true',
+  EMAIL_FROM: process.env.EMAIL_FROM || 'SpeakWise AI <noreply@speakwise.ai>',
+  RESEND_API_KEY: process.env.RESEND_API_KEY || process.env.EMAIL_SERVICE_API_KEY || process.env.ESEND_API_KEY || '',
+  EMAIL_SERVICE_API_KEY: process.env.EMAIL_SERVICE_API_KEY || process.env.RESEND_API_KEY || process.env.ESEND_API_KEY || '',
 };
 

@@ -1,13 +1,24 @@
 import { create } from 'zustand';
-import { User, UserRole } from '../types';
+import { User } from '../types';
 import { apiClient } from '../services/api';
 import { useSubscriptionStore } from './useSubscriptionStore';
+
+export interface AuthError extends Error {
+  requiresVerification?: boolean;
+  unverifiedEmail?: string;
+  code?: string;
+}
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   login: (email: string, password?: string) => Promise<void>;
-  register: (fullName: string, email: string, password?: string) => Promise<void>;
+  register: (fullName: string, email: string, password?: string) => Promise<{ requiresVerification: boolean; email: string }>;
+  verifyEmail: (email: string, otp: string) => Promise<void>;
+  sendVerificationEmail: (email: string) => Promise<{ success: boolean; message: string }>;
+  forgotPassword: (email: string) => Promise<{ success: boolean; message: string }>;
+  verifyResetOtp: (email: string, otp: string) => Promise<{ success: boolean; message: string }>;
+  resetPassword: (email: string, otp: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   loginWithGoogle: (payload: { email: string; fullName: string; googleId: string; avatarUrl?: string }) => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
@@ -50,6 +61,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         fullName: user.fullName || email.split('@')[0],
         avatarUrl: user.avatarUrl || DEFAULT_AVATAR,
         role: user.role || 'FREE_USER',
+        authProvider: user.authProvider || 'email',
+        emailVerified: user.emailVerified ?? true,
         streakDays: user.streakDays ?? 1,
         totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
         averageScore: user.averageScore ?? 85,
@@ -69,6 +82,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user: authenticatedUser, isAuthenticated: true });
       useSubscriptionStore.getState().fetchUsageStatus();
     } catch (error: any) {
+      // Check if unverified email
+      const isUnverified =
+        error?.response?.status === 403 ||
+        error?.response?.data?.requiresVerification ||
+        error?.response?.data?.error?.code === 'FORBIDDEN' ||
+        (error?.response?.data?.error?.message || '').toLowerCase().includes('not verified') ||
+        (error?.response?.data?.error || '').toString().toLowerCase().includes('not verified');
+
+      if (isUnverified) {
+        const authErr: AuthError = new Error(
+          error?.response?.data?.error?.message ||
+          error?.response?.data?.error ||
+          'Your email address is not verified. Please verify your email before logging in.'
+        );
+        authErr.requiresVerification = true;
+        authErr.unverifiedEmail = email;
+        throw authErr;
+      }
+
       // If network error (backend offline/standalone demo), allow client demo login
       if (error.code === 'ERR_NETWORK' || !error.response) {
         useSubscriptionStore.getState().resetSubscription();
@@ -78,6 +110,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           fullName: email.split('@')[0].replace('.', ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
           avatarUrl: DEFAULT_AVATAR,
           role: 'FREE_USER',
+          authProvider: 'email',
+          emailVerified: true,
           streakDays: 1,
           totalPracticeMinutes: 0,
           averageScore: 85,
@@ -91,7 +125,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useSubscriptionStore.getState().fetchUsageStatus();
         return;
       }
-      const msg = error?.response?.data?.error || error?.response?.data?.message || 'Invalid email or password';
+
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Invalid email or password';
       throw new Error(msg);
     }
   },
@@ -105,13 +144,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         password: password || 'password123',
       });
 
-      const { user, accessToken, refreshToken } = response.data.data;
+      const resData = response.data.data;
+      const requiresVerification = resData?.requiresVerification !== false;
+
+      // If email verification is required, do NOT authenticate yet; notify caller to show OTP step
+      if (requiresVerification) {
+        return { requiresVerification: true, email };
+      }
+
+      // If already verified or server bypasses
+      const { user, accessToken, refreshToken } = resData;
       const authenticatedUser: User = {
         id: user.id || user._id,
         email: user.email || email,
         fullName: user.fullName || fullName,
         avatarUrl: user.avatarUrl || DEFAULT_AVATAR,
         role: user.role || 'FREE_USER',
+        authProvider: 'email',
+        emailVerified: true,
         streakDays: user.streakDays ?? 1,
         totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
         averageScore: user.averageScore ?? 0,
@@ -130,29 +180,133 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       set({ user: authenticatedUser, isAuthenticated: true });
       useSubscriptionStore.getState().fetchUsageStatus();
+      return { requiresVerification: false, email };
     } catch (error: any) {
       if (error.code === 'ERR_NETWORK' || !error.response) {
-        useSubscriptionStore.getState().resetSubscription();
-        const newUser: User = {
-          id: 'usr_' + Date.now(),
-          email,
-          fullName,
-          avatarUrl: DEFAULT_AVATAR,
-          role: 'FREE_USER',
-          streakDays: 1,
-          totalPracticeMinutes: 0,
-          averageScore: 0,
-          targetWpm: 140,
-          exp: 100,
-          level: 1,
-          createdAt: new Date().toISOString(),
-        };
-        localStorage.setItem('speakwise_user', JSON.stringify(newUser));
-        set({ user: newUser, isAuthenticated: true });
-        useSubscriptionStore.getState().fetchUsageStatus();
-        return;
+        return { requiresVerification: true, email };
       }
-      const msg = error?.response?.data?.error || error?.response?.data?.message || 'Registration failed';
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Registration failed';
+      throw new Error(msg);
+    }
+  },
+
+  verifyEmail: async (email: string, otp: string) => {
+    try {
+      useSubscriptionStore.getState().resetSubscription();
+      const response = await apiClient.post('/auth/verify-email', {
+        email,
+        otp,
+      });
+
+      const { user, accessToken, refreshToken } = response.data.data;
+      const authenticatedUser: User = {
+        id: user.id || user._id,
+        email: user.email || email,
+        fullName: user.fullName || email.split('@')[0],
+        avatarUrl: user.avatarUrl || DEFAULT_AVATAR,
+        role: user.role || 'FREE_USER',
+        authProvider: user.authProvider || 'email',
+        emailVerified: true,
+        streakDays: user.streakDays ?? 1,
+        totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
+        averageScore: user.averageScore ?? 85,
+        targetWpm: user.targetWpm ?? 145,
+        exp: user.exp ?? 250,
+        level: user.level ?? 1,
+        createdAt: user.createdAt || new Date().toISOString(),
+      };
+
+      localStorage.setItem('speakwise_user', JSON.stringify(authenticatedUser));
+      if (accessToken) {
+        localStorage.setItem('speakwise_token', accessToken);
+      }
+      if (refreshToken) {
+        localStorage.setItem('speakwise_refresh_token', refreshToken);
+      }
+      set({ user: authenticatedUser, isAuthenticated: true });
+      useSubscriptionStore.getState().fetchUsageStatus();
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Verification failed. Please check your code and try again.';
+      throw new Error(msg);
+    }
+  },
+
+  sendVerificationEmail: async (email: string) => {
+    try {
+      const response = await apiClient.post('/auth/send-verification', { email });
+      return {
+        success: true,
+        message: response.data.message || 'Verification code sent to your email.',
+      };
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Failed to send verification code.';
+      throw new Error(msg);
+    }
+  },
+
+  forgotPassword: async (email: string) => {
+    try {
+      const response = await apiClient.post('/auth/forgot-password', { email });
+      return {
+        success: true,
+        message: response.data.message || 'If an account exists for this email, password reset instructions have been sent.',
+      };
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Unable to process reset request. Please try again.';
+      throw new Error(msg);
+    }
+  },
+
+  verifyResetOtp: async (email: string, otp: string) => {
+    try {
+      const response = await apiClient.post('/auth/verify-reset-otp', { email, otp });
+      return {
+        success: true,
+        message: response.data.message || 'Code verified successfully.',
+      };
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Invalid or expired reset code.';
+      throw new Error(msg);
+    }
+  },
+
+  resetPassword: async (email: string, otp: string, newPassword: string) => {
+    try {
+      const response = await apiClient.post('/auth/reset-password', {
+        email,
+        otp,
+        newPassword,
+      });
+      return {
+        success: true,
+        message: response.data.message || 'Password reset successfully. You can now log in.',
+      };
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Password reset failed. Please try again.';
       throw new Error(msg);
     }
   },
@@ -174,6 +328,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         fullName: user.fullName || fullName,
         avatarUrl: user.avatarUrl || avatarUrl || DEFAULT_AVATAR,
         role: user.role || 'FREE_USER',
+        authProvider: 'google',
+        emailVerified: true,
         streakDays: user.streakDays ?? 1,
         totalPracticeMinutes: user.totalPracticeMinutes ?? 0,
         averageScore: user.averageScore ?? 85,
@@ -201,6 +357,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           fullName,
           avatarUrl: avatarUrl || DEFAULT_AVATAR,
           role: 'FREE_USER',
+          authProvider: 'google',
+          emailVerified: true,
           streakDays: 1,
           totalPracticeMinutes: 0,
           averageScore: 85,
@@ -214,7 +372,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useSubscriptionStore.getState().fetchUsageStatus();
         return;
       }
-      const msg = error?.response?.data?.error || error?.response?.data?.message || 'Google Authentication failed';
+      const msg =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        'Google Authentication failed';
       throw new Error(msg);
     }
   },
@@ -262,6 +424,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           fullName: me.fullName || current?.fullName || '',
           avatarUrl: me.avatarUrl || current?.avatarUrl || DEFAULT_AVATAR,
           role: me.role || current?.role || 'FREE_USER',
+          authProvider: me.authProvider || current?.authProvider || 'email',
+          emailVerified: me.emailVerified ?? current?.emailVerified ?? true,
           streakDays: me.streakDays ?? current?.streakDays ?? 1,
           totalPracticeMinutes: me.totalPracticeMinutes ?? current?.totalPracticeMinutes ?? 0,
           averageScore: me.averageScore ?? current?.averageScore ?? 85,

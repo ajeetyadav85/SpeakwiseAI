@@ -142,7 +142,7 @@ export const PracticeModePage: React.FC = () => {
           <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-medium">
             {activeTab === 'freestyle'
               ? 'Speak directly on any topic of your choice without constraints'
-              : 'Select category & difficulty filters, then click Start Selection to generate via Gemini AI'}
+              : 'Select category & difficulty filters, then click Start Selection to generate'}
           </p>
         </div>
 

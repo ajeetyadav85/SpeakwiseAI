@@ -9,7 +9,49 @@ export const registerController = async (req: Request, res: Response, next: Next
   try {
     const { fullName, email, password } = req.body;
     const guestId = UsageService.getOrCreateGuestId(req, res);
-    const { user, tokens } = await AuthService.register(fullName, email, password);
+    const regResult = await AuthService.register(fullName, email, password);
+
+    if (regResult.user && (regResult.user.id || (regResult.user as any)._id)) {
+      await UsageService.transferGuestUsageToUser(guestId, regResult.user.id || (regResult.user as any)._id);
+    }
+
+    res.cookie('refreshToken', regResult.tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        user: regResult.user,
+        accessToken: regResult.tokens.accessToken,
+        refreshToken: regResult.tokens.refreshToken,
+        emailVerified: regResult.emailVerified,
+        requiresVerification: regResult.requiresVerification,
+        message: regResult.message,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendVerificationController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email } = req.body;
+    const result = await AuthService.sendVerificationEmail(email);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyEmailController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, otp } = req.body;
+    const guestId = UsageService.getOrCreateGuestId(req, res);
+    const { user, tokens, message } = await AuthService.verifyEmail(email, otp);
 
     if (user && (user.id || (user as any)._id)) {
       await UsageService.transferGuestUsageToUser(guestId, user.id || (user as any)._id);
@@ -21,8 +63,9 @@ export const registerController = async (req: Request, res: Response, next: Next
       sameSite: 'strict',
     });
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
+      message,
       data: { user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken },
     });
   } catch (error) {
@@ -50,6 +93,36 @@ export const loginController = async (req: Request, res: Response, next: NextFun
       success: true,
       data: { user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const forgotPasswordController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email } = req.body;
+    const result = await AuthService.forgotPassword(email);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyResetOtpController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, otp } = req.body;
+    const result = await AuthService.verifyResetOtp(email, otp);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetPasswordController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const result = await AuthService.resetPassword(email, otp, newPassword);
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
@@ -141,6 +214,7 @@ export const getMeController = async (req: Request, res: Response, next: NextFun
         fullName: dbUser.fullName,
         avatarUrl: dbUser.avatarUrl,
         authProvider: dbUser.authProvider || 'email',
+        emailVerified: dbUser.emailVerified ?? true,
         streakDays: dbUser.streakDays ?? 7,
         totalPracticeMinutes: dbUser.totalPracticeMinutes ?? 142,
         averageScore: dbUser.averageScore ?? 88,

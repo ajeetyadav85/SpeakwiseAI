@@ -4,6 +4,16 @@ import { AutoFillContentService, getContentThreshold } from './autoFillContent.s
 import { logger } from '../utils/logger.js';
 
 const ALL_TOPIC_CATEGORIES = [
+  'Everyday English',
+  'Job Interview',
+  'IT/Software Job',
+  'ITI/Technical Job',
+  'College Presentation',
+  'Group Discussion',
+  'Customer Support',
+  'Travel English',
+  'Workplace English',
+  'Public Speaking',
   'General',
   'Sports',
   'Education',

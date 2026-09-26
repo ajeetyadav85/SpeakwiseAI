@@ -1,7 +1,15 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 import { seedContentDatabase } from '../services/seedContent.service.js';
+
+// Ensure MongoDB Atlas SRV records resolve reliably across Windows environments
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch {
+  // Ignore if not supported in the execution environment
+}
 
 export const connectDB = async (): Promise<void> => {
   try {

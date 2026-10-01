@@ -6,4 +6,4 @@ Disallow: /admin
 Disallow: /settings
 Disallow: /sessions
 
-Sitemap: https://speakwiseai.app/sitemap.xml
+Sitemap: https://www.speakwiseai.app/sitemap.xml

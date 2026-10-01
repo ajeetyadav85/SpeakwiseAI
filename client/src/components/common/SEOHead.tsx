@@ -32,7 +32,7 @@ export const SEOHead: React.FC<SEOHeadProps> = ({
     };
 
     let canonical = document.querySelector('link[rel="canonical"]');
-    const prevCanonical = canonical?.getAttribute('href') || 'https://speakwiseai.app/';
+    const prevCanonical = canonical?.getAttribute('href') || 'https://www.speakwiseai.app/';
     if (!canonical) {
       canonical = document.createElement('link');
       canonical.setAttribute('rel', 'canonical');

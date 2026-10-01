@@ -24,10 +24,10 @@ export const BestEnglishAppLandingPage: React.FC = () => {
       <SEOHead
         title="Best English Speaking Practice App: Honest Review & Free Features | SpeakWise AI"
         description="Looking for the best English speaking practice app? Compare SpeakWise AI features, what is included in the free tier, and how real-time AI speech feedback works."
-        canonicalUrl="https://speakwiseai.app/best-english-speaking-practice-app"
+        canonicalUrl="https://www.speakwiseai.app/best-english-speaking-practice-app"
         ogTitle="Best English Speaking Practice App: Honest Review & Free Features | SpeakWise AI"
         ogDescription="An honest guide to choosing an English speaking practice app. Compare real voice practice vs multiple-choice drills, plus free tier details."
-        ogUrl="https://speakwiseai.app/best-english-speaking-practice-app"
+        ogUrl="https://www.speakwiseai.app/best-english-speaking-practice-app"
       />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 space-y-16 sm:space-y-20">

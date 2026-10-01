@@ -51,10 +51,10 @@ export const ImpromptuSpeakingLandingPage: React.FC = () => {
       <SEOHead
         title="Impromptu Speaking Practice & Online Extempore Coach | SpeakWise AI"
         description="Master impromptu speaking practice and online extempore with structured frameworks, sample topics, and instant AI speech feedback on grammar and pace."
-        canonicalUrl="https://speakwiseai.app/impromptu-speaking-practice"
+        canonicalUrl="https://www.speakwiseai.app/impromptu-speaking-practice"
         ogTitle="Impromptu Speaking Practice & Online Extempore Coach | SpeakWise AI"
         ogDescription="Learn how to organize your thoughts rapidly under pressure using the PREP framework and real-time AI speech evaluation."
-        ogUrl="https://speakwiseai.app/impromptu-speaking-practice"
+        ogUrl="https://www.speakwiseai.app/impromptu-speaking-practice"
       />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 space-y-16 sm:space-y-20">

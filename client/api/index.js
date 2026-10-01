@@ -125,6 +125,9 @@ async function connectDB() {
 }
 
 let UserModel = null;
+let GuestUsageModel = null;
+let PaymentTransactionModel = null;
+let ContentModel = null;
 if (mongoose) {
   const userSchema = new mongoose.Schema(
     {
@@ -207,6 +210,53 @@ if (mongoose) {
   );
 
   PaymentTransactionModel = mongoose.models.PaymentTransaction || mongoose.model('PaymentTransaction', paymentTransactionSchema);
+
+  const contentSchema = new mongoose.Schema(
+    {
+      type: {
+        type: String,
+        required: true,
+        enum: ['TOPIC', 'QUESTION', 'WORD', 'CORPORATE_TALK'],
+        index: true,
+      },
+      category: {
+        type: String,
+        required: true,
+        trim: true,
+        index: true,
+      },
+      difficulty: {
+        type: String,
+        required: true,
+        enum: ['Easy', 'Medium', 'Hard'],
+        index: true,
+      },
+      title: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      meaning: {
+        type: String,
+        default: '',
+      },
+      contentOverview: {
+        type: String,
+        default: '',
+      },
+      hint: {
+        type: String,
+        default: '',
+      },
+      suggestedDurationSeconds: {
+        type: Number,
+        default: 150,
+      },
+    },
+    { timestamps: true }
+  );
+
+  ContentModel = mongoose.models.Content || mongoose.model('Content', contentSchema);
 }
 
 // ==============================================================================
@@ -1456,30 +1506,202 @@ app.post(
 app.get(['/api/v1/usage/status', '/api/usage/status', '/usage/status'], handleUsageStatus);
 app.post(['/api/v1/usage/consume', '/api/usage/consume', '/usage/consume'], handleUsageConsume);
 
-// 4. Content Generator Routes
-app.get(['/api/v1/content/random', '/api/content/random', '/content/random'], (req, res) => {
-  return res.status(200).json({
-    success: true,
-    data: {
-      id: 'top_' + Date.now(),
-      title: 'Navigating Pitch Deck Objections in High-Stakes Fundraising',
-      category: 'Business',
-      difficulty: 'Advanced',
-      type: 'TOPIC',
-      meaning: 'Mastering investor questions with clear unit economics.',
-      contentOverview: 'Focus on strategic pauses, vocal variety, and structured arguments.',
-      hint: 'Articulate unit economics and CAC payback period clearly.',
-      suggestedDurationSeconds: 150,
-    },
-  });
-});
+// Default Fallback Categories (used if database is unreachable)
+const ALL_TOPIC_CATEGORIES = [
+  'Everyday English',
+  'Job Interview',
+  'IT/Software Job',
+  'ITI/Technical Job',
+  'College Presentation',
+  'Group Discussion',
+  'Customer Support',
+  'Travel English',
+  'Workplace English',
+  'Public Speaking',
+  'General',
+  'Sports',
+  'Education',
+  'History',
+  'Geography',
+  'Technology & AI',
+  'Business & Entrepreneurship',
+  'Science & Space',
+  'Philosophy & Ethics',
+  'Environment & Climate',
+  'Psychology & Mindset',
+  'Art & Literature',
+  'Entertainment & Pop Culture',
+  'Health & Wellness',
+  'Politics & Civics',
+];
 
-app.get(['/api/v1/content/categories', '/api/content/categories', '/content/categories'], (req, res) => {
-  return res.status(200).json({
-    success: true,
-    data: ['Leadership', 'Business', 'Tech', 'Interviews', 'Public Speaking', 'Impromptu'],
-  });
-});
+const ALL_WORD_CATEGORIES = ['Words', 'Phrases', 'Idioms', 'Vocabulary'];
+const ALL_QUESTION_CATEGORIES = ['General', 'Interview', 'Leadership', 'Behavioral'];
+const ALL_CORPORATE_TALK_CATEGORIES = [
+  'Executive Pitch',
+  'Townhall Address',
+  'Product Launch',
+  'Crisis Management',
+  'Meeting Conversation',
+];
+
+// Content Random Generator Handler
+async function handleRandomContent(req, res) {
+  try {
+    const rawType = req.query.type;
+    const rawCategory = req.query.category;
+    const rawDifficulty = req.query.difficulty;
+
+    const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    // 1. Resolve Content Type (Support Freestyle / Random)
+    let type = 'TOPIC';
+    const normType = (rawType || '').trim().toUpperCase();
+    if (normType === 'FREESTYLE' || normType === 'RANDOM' || !normType) {
+      type = pickRandom(['TOPIC', 'QUESTION', 'WORD', 'CORPORATE_TALK']);
+    } else if (['TOPIC', 'QUESTION', 'WORD', 'CORPORATE_TALK'].includes(normType)) {
+      type = normType;
+    }
+
+    // 2. Resolve Difficulty (Support Random / All)
+    const difficulties = ['Easy', 'Medium', 'Hard'];
+    let difficulty = 'Medium';
+    if (!rawDifficulty || rawDifficulty === 'Random' || rawDifficulty === 'All') {
+      difficulty = pickRandom(difficulties);
+    } else if (['Easy', 'Medium', 'Hard'].includes(rawDifficulty)) {
+      difficulty = rawDifficulty;
+    }
+
+    // 3. Resolve Category (Support Random / All / Freestyle)
+    const category = rawCategory ? String(rawCategory).trim() : '';
+
+    // Match filter construction
+    const matchFilter = { type };
+    if (category && category !== 'Random' && category !== 'All' && category !== 'Freestyle') {
+      matchFilter.category = { $regex: new RegExp(`^${category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+    }
+    if (difficulty && difficulty !== 'All' && difficulty !== 'Random') {
+      matchFilter.difficulty = difficulty;
+    }
+
+    const db = await connectDB();
+    if (db && ContentModel) {
+      // Step A: Check count with current filter
+      let count = await ContentModel.countDocuments(matchFilter);
+      let queryFilter = matchFilter;
+
+      // Step B: If 0 matches with difficulty, relax difficulty filter
+      if (count === 0 && queryFilter.difficulty) {
+        const relaxed = { ...queryFilter };
+        delete relaxed.difficulty;
+        const relaxedCount = await ContentModel.countDocuments(relaxed);
+        if (relaxedCount > 0) {
+          queryFilter = relaxed;
+          count = relaxedCount;
+        }
+      }
+
+      // Step C: If still 0 matches (e.g. unknown category), sample within type
+      if (count === 0) {
+        queryFilter = { type };
+        count = await ContentModel.countDocuments(queryFilter);
+      }
+
+      if (count > 0) {
+        const sample = await ContentModel.aggregate([
+          { $match: queryFilter },
+          { $sample: { size: 1 } },
+        ]);
+
+        if (sample && sample.length > 0) {
+          const doc = sample[0];
+          return res.status(200).json({
+            success: true,
+            data: {
+              id: doc._id ? String(doc._id) : 'top_' + Date.now(),
+              title: doc.title,
+              category: doc.category,
+              difficulty: doc.difficulty || difficulty,
+              type: doc.type,
+              meaning: doc.meaning || '',
+              contentOverview: doc.contentOverview || '',
+              hint: doc.hint || '',
+              suggestedDurationSeconds: doc.suggestedDurationSeconds || 150,
+            },
+          });
+        }
+      }
+    }
+
+    // Dynamic Fallback in case DB is offline
+    const fallbackCategory = category && category !== 'Random' && category !== 'All' ? category : 'General';
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: 'top_' + Date.now(),
+        title: `${fallbackCategory} Topic: Speak on key challenges, personal lessons, and practical solutions.`,
+        category: fallbackCategory,
+        difficulty,
+        type,
+        meaning: `Speaking practice session for ${fallbackCategory}.`,
+        contentOverview: 'Focus on clear vocal delivery, structured arguments, and smooth transitions.',
+        hint: 'Structure your speech with a clear beginning, middle, and end.',
+        suggestedDurationSeconds: 150,
+      },
+    });
+  } catch (err) {
+    console.error('[CONTENT RANDOM ERROR]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve random content',
+    });
+  }
+}
+
+// Categories Handler
+async function handleCategories(req, res) {
+  try {
+    const rawType = req.query.type;
+    const type = (rawType || 'TOPIC').trim().toUpperCase();
+
+    const db = await connectDB();
+    if (db && ContentModel) {
+      try {
+        const categories = await ContentModel.distinct('category', { type });
+        if (categories && categories.length > 0) {
+          categories.sort((a, b) => a.localeCompare(b));
+          return res.status(200).json({
+            success: true,
+            data: categories,
+          });
+        }
+      } catch (err) {
+        console.warn('[CATEGORIES FETCH ERROR]', err);
+      }
+    }
+
+    // Fallback if MongoDB is offline or returns empty
+    let fallback = ALL_TOPIC_CATEGORIES;
+    if (type === 'WORD') fallback = ALL_WORD_CATEGORIES;
+    else if (type === 'QUESTION') fallback = ALL_QUESTION_CATEGORIES;
+    else if (type === 'CORPORATE_TALK') fallback = ALL_CORPORATE_TALK_CATEGORIES;
+
+    return res.status(200).json({
+      success: true,
+      data: fallback,
+    });
+  } catch (err) {
+    console.error('[CATEGORIES ERROR]', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve categories',
+    });
+  }
+}
+
+// 4. Content Generator Routes
+app.get(['/api/v1/content/random', '/api/content/random', '/content/random'], handleRandomContent);
+app.get(['/api/v1/content/categories', '/api/content/categories', '/content/categories'], handleCategories);
 
 // 5. System Health Check Routes
 app.get(

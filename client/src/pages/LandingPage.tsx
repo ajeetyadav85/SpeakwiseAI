@@ -428,9 +428,8 @@ export const LandingPage: React.FC = () => {
                 <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                 <span>Goal-Oriented AI Practice</span>
               </div>
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-                What do you want to improve?
-              </h1>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 dark:text-white tracking-tight">Impromptu Speaking Practice with Instant AI Feedback</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">What do you want to improve? Pick a goal and start a timed practice.</p>
             </div>
 
             {/* 3 Boxes Each Row on Both Mobile and PC (10 categories + 1 box spanning 2 columns = 12 slots = perfect 3x4 grid) */}
@@ -552,17 +551,17 @@ export const LandingPage: React.FC = () => {
                         <span className="text-xs uppercase font-extrabold tracking-widest text-indigo-500">
                           Practice Word of the Day:
                         </span>
-                        <h3 className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-wide font-mono">
+                        <p className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-wide font-mono">
                           "{activePrompt.word}"
-                        </h3>
+                        </p>
                         <p className="text-sm sm:text-base text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
                           {activePrompt.prompt}
                         </p>
                       </div>
                     ) : (
-                      <h3 className="text-lg sm:text-2xl font-serif italic text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
+                      <p className="text-lg sm:text-2xl font-serif italic text-slate-900 dark:text-slate-100 font-medium leading-relaxed">
                         "{activePrompt.prompt}"
-                      </h3>
+                      </p>
                     )}
 
                     <div className="text-xs text-slate-600 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-950/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -790,7 +789,7 @@ export const LandingPage: React.FC = () => {
             <div className="p-3.5 rounded-2xl neu-pressed space-y-2.5 text-left border border-cyan-500/10 text-xs">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">Methodology</span>
-                <Badge variant="emerald">94% Accuracy</Badge>
+                <Badge variant="emerald">Sample: 94% Accuracy</Badge>
               </div>
               <div className="text-[11px] font-mono text-indigo-500">
                 IPA: /ˌmeθ.əˈdɒl.ə.dʒi/
@@ -822,7 +821,7 @@ export const LandingPage: React.FC = () => {
             {/* Visual UI Preview Mockup */}
             <div className="p-3.5 rounded-2xl neu-pressed space-y-2 text-left border border-indigo-500/10 text-xs">
               <div className="flex justify-between items-baseline">
-                <span className="font-extrabold text-slate-800 dark:text-slate-200">Overall Score</span>
+                <span className="font-extrabold text-slate-800 dark:text-slate-200">Sample Overall Score</span>
                 <span className="text-base font-black font-mono text-indigo-600 dark:text-indigo-400">88% (Excellent)</span>
               </div>
               <div className="space-y-1.5 pt-1 text-[11px]">
@@ -922,7 +921,7 @@ export const LandingPage: React.FC = () => {
                 <span>Executive PDF / CSV Export Ready</span>
               </div>
               <div className="p-2 rounded-xl bg-slate-200/60 dark:bg-slate-900/80 font-mono text-[10px] text-slate-600 dark:text-slate-400 truncate">
-                https://speakwise.ai/reports/rep_88491
+                https://speakwiseai.app/reports/rep_88491
               </div>
               <Badge variant="emerald">Passcode Protected</Badge>
             </div>
@@ -936,7 +935,7 @@ export const LandingPage: React.FC = () => {
               Ready to Transform Your English Communication?
             </h3>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
-              Start practicing with our goal-based prompts above, or unlock unlimited AI evaluations with the SpeakWise Pro Pass.
+              Start practicing with our goal-based prompts above, or unlock unlimited AI evaluations with our ₹1 7-Day trial (passes from ₹9).
             </p>
           </div>
 
@@ -958,7 +957,7 @@ export const LandingPage: React.FC = () => {
               onClick={openSubscriptionModal}
               leftIcon={<Crown className="w-4 h-4 text-amber-300" />}
             >
-              Unlock Pro Pass (Starting ₹9)
+              {isTrialEligible ? 'Claim 7 Days Pro @ ₹1' : 'Unlock Pro Pass (Starting ₹9)'}
             </Button>
           </div>
         </div>

@@ -21,11 +21,11 @@ export const Footer: React.FC = () => {
               </span>
             </Link>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
-              Enterprise public speaking intelligence and real-time executive voice cadence coaching.
+              AI English speaking and impromptu speech coach for students, job seekers, and professionals.
             </p>
             <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>PCI-DSS 256-Bit SSL Secure</span>
+              <span>Payments secured by Razorpay</span>
             </div>
           </div>
 
@@ -99,7 +99,7 @@ export const Footer: React.FC = () => {
               onClick={openSubscriptionModal}
               className="text-xs text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline block pt-1"
             >
-              View Affordable Passes (Starting ₹9 / 24h) →
+              View Affordable Passes (₹1 Trial or from ₹9) →
             </button>
 
           </div>

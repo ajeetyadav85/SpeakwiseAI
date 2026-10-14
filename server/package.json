@@ -11,6 +11,7 @@
     "seed:groq": "tsx src/scripts/seedGroqContent.ts",
     "clean:db": "tsx src/scripts/cleanContentDb.ts",
     "test:regression": "tsx src/scripts/testProRegression.ts",
+    "test:guest-gating": "tsx src/scripts/testGuestAnalysisGatingRegression.ts",
     "test:refresh": "tsx src/scripts/testTokenRefreshRegression.ts",
     "test:e2e-sync": "tsx src/scripts/testE2EProSync.ts",
     "test:self-healing": "tsx src/scripts/testSelfHealing.ts",

@@ -5,7 +5,7 @@ export interface IGuestUsage extends Document {
   dailyAttemptsUsed: number;
   totalAttemptsUsed: number;
   lastResetDate: Date;
-  ipAddress?: string;
+  hashedIp?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,7 +16,7 @@ const GuestUsageSchema: Schema = new Schema(
     dailyAttemptsUsed: { type: Number, default: 0 },
     totalAttemptsUsed: { type: Number, default: 0 },
     lastResetDate: { type: Date, default: Date.now },
-    ipAddress: { type: String, default: '' },
+    hashedIp: { type: String, default: '', index: true },
   },
   { timestamps: true }
 );

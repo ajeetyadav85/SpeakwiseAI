@@ -116,9 +116,9 @@ export class UsageService {
         }
         if (!activeTx.userId) {
           activeTx.userId = user._id;
-          await activeTx.save().catch(() => {});
+          await activeTx.save().catch(() => { });
         }
-        await user.save().catch(() => {});
+        await user.save().catch(() => { });
 
         return {
           planType: 'PRO',
@@ -159,16 +159,18 @@ export class UsageService {
         canProceed: attemptsLeft > 0,
         isPro: false,
         isTrialEligible: !user.hasUsedTrialOffer && !user.subscriptionPlan,
-        message: attemptsLeft > 0 
+        message: attemptsLeft > 0
           ? `${attemptsLeft} of 3 free speech analyses remaining`
           : "All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!",
       };
     }
 
-    // 3. Guest / Free Visitor (3 Lifetime Free Attempts)
+    // 3. Guest / Free Visitor (3 Lifetime Free Attempts upon signing in)
     const guestId = this.getOrCreateGuestId(req, res);
-    let guestDoc: IGuestUsage | null = null;
+    const hashedIp = this.getHashedIp(req);
+    const ipLimited = await this.isGuestIpRateLimited(hashedIp);
 
+    let guestDoc: IGuestUsage | null = null;
     try {
       guestDoc = await GuestUsageModel.findOne({ guestId });
     } catch (e) {
@@ -179,24 +181,86 @@ export class UsageService {
     const maxAttempts = 3;
     const attemptsLeft = Math.max(0, maxAttempts - guestUsed);
 
+    // Guests can practice and record, but analysis requires an authenticated user.
     return {
       planType: 'GUEST',
       attemptsUsed: guestUsed,
       attemptsLeft,
       maxAttempts,
-      canProceed: attemptsLeft > 0,
+      canProceed: !ipLimited,
       isPro: false,
       isTrialEligible: true,
-      message: attemptsLeft > 0
-        ? `${attemptsLeft} of 3 free speech analyses remaining`
-        : "All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!",
+      message: ipLimited
+        ? 'Guest analysis limit reached for this network (max 10 per 24 hours). Sign in with Google to get your 3 free analyses.'
+        : 'Sign in with Google to get your 3 free analyses',
     };
   }
 
   /**
-   * Consume 1 attempt for guest or user. Throws error if limit reached.
+   * Helper to derive hashed IP from request (raw IP is never stored)
+   */
+  static getHashedIp(req: Request): string {
+    const rawIp =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      '';
+    return crypto.createHash('sha256').update(rawIp).digest('hex');
+  }
+
+  /**
+   * Soft IP-based cap backup in guest-usage logic:
+   * Shared-network trade-off: A soft cap of 10 analyses per 24 hours per hashed IP
+   * prevents automated guest abuse while accommodating legitimate users sharing a NAT network
+   * (e.g., college campuses, libraries, offices, coffee shops).
+   * Do NOT tighten this limit without evaluating shared-network false positives.
+   */
+  static async isGuestIpRateLimited(hashedIp: string): Promise<boolean> {
+    if (!hashedIp) return false;
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const guestDocs = await GuestUsageModel.find({
+        hashedIp,
+        updatedAt: { $gte: twentyFourHoursAgo },
+      });
+      const totalAttempts = guestDocs.reduce(
+        (sum, doc) => sum + (doc.totalAttemptsUsed || doc.dailyAttemptsUsed || 0),
+        0
+      );
+      return totalAttempts >= 10;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Consume 1 attempt for user. Throws error if limit reached.
+   * Free speech analyses require a logged-in user; guests cannot consume attempts.
    */
   static async consumeUsage(req: Request, res?: Response): Promise<UsageStatusResult> {
+    const hashedIp = this.getHashedIp(req);
+
+    // Soft IP-based cap backup in guest-usage logic:
+    // Shared-network trade-off: 10 attempts per 24h per hashed IP protects against automated abuse
+    // while accommodating multiple users on shared NAT networks (schools, offices, dorms).
+    if (await this.isGuestIpRateLimited(hashedIp)) {
+      const err: any = new Error(
+        'Guest analysis limit reached for this network (max 10 per 24 hours). Please sign in to continue.'
+      );
+      err.statusCode = 429;
+      throw err;
+    }
+
+    // Free speech analyses strictly require a logged-in user.
+    // A guest (no valid token) can practice and record, but cannot receive analysis
+    // or consume a guest attempt.
+    const userId = req.user?.id;
+    if (!userId) {
+      const err: any = new Error('Sign in with Google to get your 3 free analyses');
+      err.statusCode = 401;
+      throw err;
+    }
+
     const status = await this.getUsageStatus(req, res);
 
     if (status.isPro) {
@@ -211,28 +275,14 @@ export class UsageService {
       throw err;
     }
 
-    const userId = req.user?.id;
-    if (userId) {
-      try {
-        const user = await UserModel.findById(userId);
-        if (user) {
-          user.freestyleAttemptsUsed = (user.freestyleAttemptsUsed || 0) + 1;
-          await user.save();
-        }
-      } catch (e) {}
-    } else {
-      const guestId = this.getOrCreateGuestId(req, res);
-      try {
-        await GuestUsageModel.findOneAndUpdate(
-          { guestId },
-          {
-            $inc: { dailyAttemptsUsed: 1, totalAttemptsUsed: 1 },
-            $setOnInsert: { lastResetDate: new Date(), ipAddress: req.ip || '' },
-          },
-          { upsert: true, new: true }
-        );
-      } catch (e) {}
-    }
+    // Logged-in user attempt consumption (guestAttemptsConsumed + freestyleAttemptsUsed, max 3)
+    try {
+      const user = await UserModel.findById(userId);
+      if (user) {
+        user.freestyleAttemptsUsed = (user.freestyleAttemptsUsed || 0) + 1;
+        await user.save();
+      }
+    } catch (e) { }
 
     return await this.getUsageStatus(req, res);
   }

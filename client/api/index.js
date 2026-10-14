@@ -173,7 +173,7 @@ if (mongoose) {
       dailyAttemptsUsed: { type: Number, default: 0 },
       totalAttemptsUsed: { type: Number, default: 0 },
       lastResetDate: { type: Date, default: Date.now },
-      ipAddress: { type: String, default: '' },
+      hashedIp: { type: String, default: '', index: true },
     },
     { timestamps: true }
   );
@@ -904,7 +904,7 @@ async function handleGetMe(req, res) {
     }
     if (dbUser.role !== effectiveRole) {
       dbUser.role = effectiveRole;
-      await dbUser.save().catch(() => {});
+      await dbUser.save().catch(() => { });
     }
   }
 
@@ -1311,7 +1311,7 @@ async function handleUsageStatus(req, res) {
       // If user had role PRO_USER without active sub/trial, fix their role in DB
       if (dbUser.role === 'PRO_USER') {
         dbUser.role = 'FREE_USER';
-        await dbUser.save().catch(() => {});
+        await dbUser.save().catch(() => { });
       }
 
       // 2. Logged-in Free User (3 lifetime free speech analyses)
@@ -1339,16 +1339,19 @@ async function handleUsageStatus(req, res) {
 
   // 3. Guest User (Persistent GuestUsage in MongoDB)
   const guestId = req.headers['x-guest-id'] || 'gst_default';
+  const hashedIp = getHashedIp(req);
   let guestUsed = 0;
+  let ipLimited = false;
   try {
     const db = await connectDB();
     if (db && GuestUsageModel) {
+      ipLimited = await isGuestIpRateLimited(hashedIp, GuestUsageModel);
       const gDoc = await GuestUsageModel.findOne({ guestId });
       if (gDoc) {
         guestUsed = Math.max(gDoc.totalAttemptsUsed || 0, gDoc.dailyAttemptsUsed || 0);
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 
   const guestLeft = Math.max(0, 3 - guestUsed);
   return res.status(200).json({
@@ -1358,16 +1361,64 @@ async function handleUsageStatus(req, res) {
       attemptsLeft: guestLeft,
       maxAttempts: 3,
       attemptsUsed: guestUsed,
-      canProceed: guestLeft > 0,
+      canProceed: !ipLimited,
       planType: 'GUEST',
       isTrialEligible: true,
-      message: guestLeft > 0 ? `${guestLeft} of 3 free speech analyses remaining` : 'All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access.',
+      message: ipLimited
+        ? 'Guest analysis limit reached for this network (max 10 per 24 hours). Sign in with Google to get your 3 free analyses.'
+        : 'Sign in with Google to get your 3 free analyses',
     },
   });
 }
 
+function getHashedIp(req) {
+  const rawIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || req.socket?.remoteAddress || '';
+  return crypto.createHash('sha256').update(rawIp).digest('hex');
+}
+
+/**
+ * Soft IP-based cap backup in guest-usage logic:
+ * Shared-network trade-off: A soft cap of 10 analyses per 24 hours per hashed IP
+ * prevents automated guest abuse while accommodating legitimate users sharing a NAT network
+ * (e.g., college campuses, libraries, offices, coffee shops).
+ * Do NOT tighten this limit without evaluating shared-network false positives.
+ */
+async function isGuestIpRateLimited(hashedIp, GuestUsageModel) {
+  if (!hashedIp || !GuestUsageModel) return false;
+  try {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const guestDocs = await GuestUsageModel.find({
+      hashedIp,
+      updatedAt: { $gte: twentyFourHoursAgo },
+    });
+    const totalAttempts = guestDocs.reduce(
+      (sum, doc) => sum + (doc.totalAttemptsUsed || doc.dailyAttemptsUsed || 0),
+      0
+    );
+    return totalAttempts >= 10;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Usage Consume Handler
 async function handleUsageConsume(req, res) {
+  const hashedIp = getHashedIp(req);
+
+  // Soft IP-based cap backup in guest-usage logic:
+  // Shared-network trade-off: 10 attempts per 24h per hashed IP protects against automated abuse
+  // while accommodating multiple users on shared NAT networks (schools, offices, dorms).
+  try {
+    const db = await connectDB();
+    if (db && GuestUsageModel && (await isGuestIpRateLimited(hashedIp, GuestUsageModel))) {
+      return res.status(429).json({
+        success: false,
+        error: 'Guest analysis limit reached for this network (max 10 per 24 hours). Please sign in to continue.',
+        message: 'Guest analysis limit reached for this network (max 10 per 24 hours). Please sign in to continue.',
+      });
+    }
+  } catch (e) { }
+
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
   const payload = token ? verifyToken(token) : null;
@@ -1403,6 +1454,16 @@ async function handleUsageConsume(req, res) {
               },
             });
           }
+
+          const usedBefore = (dbUser.guestAttemptsConsumed || 0) + (dbUser.freestyleAttemptsUsed || 0);
+          if (usedBefore >= 3) {
+            return res.status(402).json({
+              success: false,
+              error: 'All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!',
+              message: 'All 3 free speech analyses used. Activate the ₹1 7-Day Pro trial or upgrade to Pro for unlimited access!',
+            });
+          }
+
           dbUser.freestyleAttemptsUsed = (dbUser.freestyleAttemptsUsed || 0) + 1;
           await dbUser.save();
           const used = (dbUser.guestAttemptsConsumed || 0) + dbUser.freestyleAttemptsUsed;
@@ -1420,40 +1481,17 @@ async function handleUsageConsume(req, res) {
           });
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
-  // Persistent Guest Consume in MongoDB
-  const guestId = req.headers['x-guest-id'] || 'gst_default';
-  let gUsed = 1;
-  try {
-    const db = await connectDB();
-    if (db && GuestUsageModel) {
-      const gDoc = await GuestUsageModel.findOneAndUpdate(
-        { guestId },
-        {
-          $inc: { dailyAttemptsUsed: 1, totalAttemptsUsed: 1 },
-          $setOnInsert: { lastResetDate: new Date(), ipAddress: req.ip || '' },
-        },
-        { upsert: true, new: true }
-      );
-      if (gDoc) {
-        gUsed = Math.max(gDoc.totalAttemptsUsed || 0, gDoc.dailyAttemptsUsed || 0);
-      }
-    }
-  } catch (e) {}
-
-  const left = Math.max(0, 3 - gUsed);
-  return res.status(200).json({
-    success: true,
-    data: {
-      isPro: false,
-      attemptsLeft: left,
-      maxAttempts: 3,
-      attemptsUsed: gUsed,
-      canProceed: left > 0,
-      planType: 'GUEST',
-    },
+  // Free speech analyses strictly require a logged-in user.
+  // A guest (no valid token) can practice and record, but cannot receive analysis
+  // or consume a guest attempt.
+  return res.status(401).json({
+    success: false,
+    code: 'AUTH_REQUIRED',
+    error: 'Sign in with Google to get your 3 free analyses',
+    message: 'Sign in with Google to get your 3 free analyses',
   });
 }
 

@@ -37,3 +37,52 @@ export const uploadAudioController = async (req: Request, res: Response, next: N
     next(error);
   }
 };
+
+import { UserModel } from '../models/User.model.js';
+import { applyPracticeSessionGamification } from '../utils/gamificationUtils.js';
+
+export const completePracticeSessionController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const { durationSeconds, sessionTitle, mode, overallScore } = req.body || {};
+    const validDuration = Math.max(0, Math.floor(Number(durationSeconds) || 0));
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    const gamificationResult = applyPracticeSessionGamification(
+      user,
+      validDuration,
+      typeof overallScore === 'number' ? overallScore : undefined
+    );
+    await user.save();
+
+    // Create a record of practice session in DB
+    const session = await SessionService.createSession(userId, sessionTitle || 'Practice Session', mode || 'ELEVATOR_PITCH');
+    if (session) {
+      session.durationSeconds = validDuration;
+      if (typeof overallScore === 'number') session.overallScore = overallScore;
+      session.status = 'COMPLETED';
+      await session.save().catch(() => {});
+    }
+
+    res.status(200).json({
+      success: true,
+      message: gamificationResult.expAwarded > 0 ? `Earned ${gamificationResult.expAwarded} XP!` : 'Practice session recorded',
+      data: {
+        sessionId: session?._id,
+        ...gamificationResult,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

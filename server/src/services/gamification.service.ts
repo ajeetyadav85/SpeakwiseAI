@@ -1,5 +1,10 @@
 import { UserModel } from '../models/User.model.js';
 import { logger } from '../utils/logger.js';
+import {
+  calculateLevel,
+  getTierName,
+  formatDisplayName,
+} from '../utils/gamificationUtils.js';
 
 export interface BadgeStatus {
   id: string;
@@ -13,19 +18,22 @@ export interface BadgeStatus {
   expReward: number;
 }
 
-export interface LeaderboardEntry {
+export interface LeaderboardUserDto {
   rank: number;
-  userId: string;
-  fullName: string;
-  avatarUrl: string;
-  role: string;
-  exp: number;
+  displayName: string;
+  avatar: string;
+  xp: number;
   level: number;
-  streakDays: number;
+  tier: string;
   averageScore: number;
-  totalPracticeMinutes: number;
-  badgeCount: number;
+  streak: number;
   isCurrentUser?: boolean;
+}
+
+export interface LeaderboardResponse {
+  period: 'weekly' | 'alltime';
+  leaderboard: LeaderboardUserDto[];
+  userRank: LeaderboardUserDto | null;
 }
 
 const DEFAULT_BADGES: Array<{
@@ -122,10 +130,13 @@ const DEFAULT_BADGES: Array<{
     category: 'CHALLENGE',
     icon: 'Target',
     expReward: 200,
-    checkUnlocked: () => ({
-      unlocked: true,
-      progress: 100,
-    }),
+    checkUnlocked: (u) => {
+      const sessions = u.totalSessionsCount || 0;
+      return {
+        unlocked: sessions >= 5,
+        progress: Math.min(100, Math.round((sessions / 5) * 100)),
+      };
+    },
   },
   {
     id: 'ach_8',
@@ -144,6 +155,14 @@ const DEFAULT_BADGES: Array<{
   },
 ];
 
+interface LeaderboardCacheItem {
+  timestamp: number;
+  users: any[];
+}
+
+const cache: Record<string, LeaderboardCacheItem> = {};
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
 export class GamificationService {
   public static async getUserBadges(userId?: string): Promise<BadgeStatus[]> {
     let user: any = null;
@@ -151,17 +170,17 @@ export class GamificationService {
       try {
         user = await UserModel.findById(userId);
       } catch (err) {
-        logger.warn('Could not fetch user for badges from DB, using fallback mock.');
+        logger.warn('Could not fetch user for badges from DB.');
       }
     }
 
     if (!user) {
       user = {
-        streakDays: 7,
-        totalPracticeMinutes: 142,
-        averageScore: 88,
-        exp: 1850,
-        level: 4,
+        streakDays: 0,
+        totalPracticeMinutes: 0,
+        averageScore: 0,
+        exp: 0,
+        level: 1,
       };
     }
 
@@ -174,152 +193,140 @@ export class GamificationService {
         category: b.category,
         icon: b.icon,
         unlocked,
-        unlockedAt: unlocked ? '2026-08-01' : undefined,
         progress,
         expReward: b.expReward,
       };
     });
   }
 
+  /**
+   * Real leaderboard endpoint returning top 20 plus requesting user's own rank.
+   * Period: 'weekly' | 'alltime'
+   * Cached for 60 seconds.
+   * Never leaks email or IDs.
+   * Excludes admins and users with 0 XP.
+   */
+  public static async getLeaderboardData(
+    period: 'weekly' | 'alltime' = 'alltime',
+    requestingUserId?: string
+  ): Promise<LeaderboardResponse> {
+    const isWeekly = (period || '').toLowerCase() === 'weekly';
+    const cacheKey = isWeekly ? 'weekly' : 'alltime';
+    const now = Date.now();
+
+    let rawTop20: any[] = [];
+    if (cache[cacheKey] && now - cache[cacheKey].timestamp < CACHE_TTL_MS) {
+      rawTop20 = cache[cacheKey].users;
+    } else {
+      try {
+        const filter: any = {
+          role: { $nin: ['SUPER_ADMIN', 'ORG_ADMIN'] },
+        };
+        if (isWeekly) {
+          filter.weeklyExp = { $gt: 0 };
+        } else {
+          filter.exp = { $gt: 0 };
+        }
+
+        const sortOptions: any = isWeekly ? { weeklyExp: -1, exp: -1 } : { exp: -1 };
+        const dbUsers = await UserModel.find(filter)
+          .select('fullName avatarUrl exp weeklyExp streakDays averageScore level')
+          .sort(sortOptions)
+          .limit(20)
+          .lean();
+
+        rawTop20 = dbUsers || [];
+        cache[cacheKey] = {
+          timestamp: now,
+          users: rawTop20,
+        };
+      } catch (dbErr: any) {
+        logger.error('Failed querying db for leaderboard:', dbErr.message);
+        rawTop20 = [];
+      }
+    }
+
+    // Format top 20 entries (Never return email or IDs)
+    const top20: LeaderboardUserDto[] = rawTop20.map((u: any, idx: number) => {
+      const userExp = isWeekly ? (u.weeklyExp || 0) : (u.exp || 0);
+      const lvl = calculateLevel(u.exp || 0);
+      const isCurrent = requestingUserId ? u._id?.toString() === requestingUserId : false;
+
+      return {
+        rank: idx + 1,
+        displayName: formatDisplayName(u.fullName),
+        avatar: u.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+        xp: userExp,
+        level: lvl,
+        tier: getTierName(lvl),
+        averageScore: u.averageScore || 0,
+        streak: u.streakDays || 0,
+        isCurrentUser: isCurrent,
+      };
+    });
+
+    // Requesting user's own rank
+    let userRank: LeaderboardUserDto | null = null;
+    if (requestingUserId) {
+      const existingInTop = top20.find((entry) => entry.isCurrentUser);
+      if (existingInTop) {
+        userRank = existingInTop;
+      } else {
+        try {
+          const currentUser = await UserModel.findById(requestingUserId)
+            .select('fullName avatarUrl role exp weeklyExp streakDays averageScore level')
+            .lean();
+
+          if (currentUser && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ORG_ADMIN') {
+            const userExp = isWeekly ? (currentUser.weeklyExp || 0) : (currentUser.exp || 0);
+            if (userExp > 0) {
+              const higherFilter: any = {
+                role: { $nin: ['SUPER_ADMIN', 'ORG_ADMIN'] },
+              };
+              if (isWeekly) {
+                higherFilter.weeklyExp = { $gt: userExp };
+              } else {
+                higherFilter.exp = { $gt: userExp };
+              }
+
+              const countHigher = await UserModel.countDocuments(higherFilter);
+              const lvl = calculateLevel(currentUser.exp || 0);
+
+              userRank = {
+                rank: countHigher + 1,
+                displayName: formatDisplayName(currentUser.fullName),
+                avatar: currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+                xp: userExp,
+                level: lvl,
+                tier: getTierName(lvl),
+                averageScore: currentUser.averageScore || 0,
+                streak: currentUser.streakDays || 0,
+                isCurrentUser: true,
+              };
+            }
+          }
+        } catch (err: any) {
+          logger.warn('Failed calculating user rank on leaderboard:', err.message);
+        }
+      }
+    }
+
+    return {
+      period: isWeekly ? 'weekly' : 'alltime',
+      leaderboard: top20,
+      userRank,
+    };
+  }
+
+  // Deprecated wrapper maintained for backwards compatibility
   public static async getLeaderboard(
     category: 'EXP' | 'SCORE' | 'STREAK' = 'EXP',
     timeframe: 'WEEKLY' | 'MONTHLY' | 'ALL_TIME' = 'ALL_TIME',
     currentUserId?: string
-  ): Promise<LeaderboardEntry[]> {
-    try {
-      const dbUsers = await UserModel.find({})
-        .select('fullName avatarUrl role streakDays totalPracticeMinutes averageScore exp level')
-        .lean();
-
-      if (dbUsers && dbUsers.length >= 3) {
-        const sorted = [...dbUsers].sort((a: any, b: any) => {
-          if (category === 'SCORE') return (b.averageScore || 0) - (a.averageScore || 0);
-          if (category === 'STREAK') return (b.streakDays || 0) - (a.streakDays || 0);
-          return (b.exp || 0) - (a.exp || 0);
-        });
-
-        return sorted.map((u: any, idx) => ({
-          rank: idx + 1,
-          userId: u._id.toString(),
-          fullName: u.fullName,
-          avatarUrl: u.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-          role: u.role || 'PRO_USER',
-          exp: u.exp || (1200 + idx * 150),
-          level: u.level || Math.max(1, Math.floor((u.exp || 1200) / 450)),
-          streakDays: u.streakDays || 5,
-          averageScore: u.averageScore || 85,
-          totalPracticeMinutes: u.totalPracticeMinutes || 120,
-          badgeCount: 4,
-          isCurrentUser: currentUserId ? u._id.toString() === currentUserId : idx === 0,
-        }));
-      }
-    } catch (dbErr) {
-      logger.warn('Failed querying db for leaderboard, returning curated mock list.');
-    }
-
-    // High quality competitive leaderboard dataset
-    const mockList: LeaderboardEntry[] = [
-      {
-        rank: 1,
-        userId: 'usr_top1',
-        fullName: 'Elena Rostova',
-        avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&q=80',
-        role: 'PRO_USER',
-        exp: 4850,
-        level: 9,
-        streakDays: 24,
-        averageScore: 95,
-        totalPracticeMinutes: 380,
-        badgeCount: 8,
-      },
-      {
-        rank: 2,
-        userId: 'usr_top2',
-        fullName: 'Marcus Vance',
-        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&q=80',
-        role: 'PRO_USER',
-        exp: 4200,
-        level: 8,
-        streakDays: 19,
-        averageScore: 93,
-        totalPracticeMinutes: 310,
-        badgeCount: 7,
-      },
-      {
-        rank: 3,
-        userId: 'usr_top3',
-        fullName: 'Jordan Reed',
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
-        role: 'PRO_USER',
-        exp: 3650,
-        level: 7,
-        streakDays: 14,
-        averageScore: 91,
-        totalPracticeMinutes: 245,
-        badgeCount: 6,
-      },
-
-      {
-        rank: 4,
-        userId: 'usr_top4',
-        fullName: 'Sophia Chen',
-        avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&q=80',
-        role: 'PRO_USER',
-        exp: 3200,
-        level: 6,
-        streakDays: 12,
-        averageScore: 89,
-        totalPracticeMinutes: 210,
-        badgeCount: 5,
-      },
-      {
-        rank: 5,
-        userId: 'usr_top5',
-        fullName: 'David Kalu',
-        avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&q=80',
-        role: 'PRO_USER',
-        exp: 2900,
-        level: 5,
-        streakDays: 10,
-        averageScore: 88,
-        totalPracticeMinutes: 185,
-        badgeCount: 5,
-      },
-      {
-        rank: 6,
-        userId: 'usr_top6',
-        fullName: 'Ananya Sharma',
-        avatarUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=256&q=80',
-        role: 'PRO_USER',
-        exp: 2450,
-        level: 5,
-        streakDays: 8,
-        averageScore: 87,
-        totalPracticeMinutes: 160,
-        badgeCount: 4,
-      },
-      {
-        rank: 7,
-        userId: 'usr_top7',
-        fullName: 'Liam O’Connor',
-        avatarUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=256&q=80',
-        role: 'FREE_USER',
-        exp: 1950,
-        level: 4,
-        streakDays: 7,
-        averageScore: 85,
-        totalPracticeMinutes: 140,
-        badgeCount: 3,
-      },
-    ];
-
-    // Re-rank based on category
-    if (category === 'SCORE') {
-      return [...mockList].sort((a, b) => b.averageScore - a.averageScore).map((u, i) => ({ ...u, rank: i + 1 }));
-    }
-    if (category === 'STREAK') {
-      return [...mockList].sort((a, b) => b.streakDays - a.streakDays).map((u, i) => ({ ...u, rank: i + 1 }));
-    }
-    return mockList;
+  ): Promise<any[]> {
+    const period = timeframe === 'WEEKLY' ? 'weekly' : 'alltime';
+    const data = await this.getLeaderboardData(period, currentUserId);
+    return data.leaderboard;
   }
 }
+

@@ -16,6 +16,12 @@ export interface IUser extends Document {
   averageScore: number;
   targetWpm: number;
   exp: number;
+  weeklyExp: number;
+  weeklyExpResetAtIST?: string;
+  dailyExpDateIST?: string;
+  dailyExpAwarded?: number;
+  lastPracticeDateIST?: string;
+  totalSessionsCount?: number;
   level: number;
   badges: Array<{ badgeId: string; unlockedAt: Date }>;
   guestId?: string;
@@ -66,12 +72,18 @@ const UserSchema: Schema = new Schema(
       default: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
     },
     teamId: { type: Schema.Types.ObjectId, ref: 'Team', default: null },
-    streakDays: { type: Number, default: 7 },
-    totalPracticeMinutes: { type: Number, default: 142 },
-    averageScore: { type: Number, default: 88 },
+    streakDays: { type: Number, default: 0 },
+    totalPracticeMinutes: { type: Number, default: 0 },
+    averageScore: { type: Number, default: 0 },
     targetWpm: { type: Number, default: 145 },
-    exp: { type: Number, default: 1850 },
-    level: { type: Number, default: 4 },
+    exp: { type: Number, default: 0 },
+    weeklyExp: { type: Number, default: 0 },
+    weeklyExpResetAtIST: { type: String, default: '' },
+    dailyExpDateIST: { type: String, default: '' },
+    dailyExpAwarded: { type: Number, default: 0 },
+    lastPracticeDateIST: { type: String, default: '' },
+    totalSessionsCount: { type: Number, default: 0 },
+    level: { type: Number, default: 1 },
     badges: [
       {
         badgeId: { type: String, required: true },

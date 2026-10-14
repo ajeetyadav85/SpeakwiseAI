@@ -14,6 +14,7 @@ import {
 } from '../data/goalTopicsData';
 import { ContentApiService } from '../services/contentApi.service';
 import { triggerGoogleAuth } from '../config/firebase';
+import { completePracticeSessionApi } from '../services/api';
 
 const GoogleIcon = () => (
   <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
@@ -383,6 +384,14 @@ export const LandingPage: React.FC = () => {
 
     const actualDuration = Math.max(1, elapsedSecondsRef.current || elapsedSeconds);
     const spokenTranscript = (liveTranscriptRef.current || liveTranscript).trim();
+
+    // Award XP on completed practice session of >= 20s, whether or not analysis runs
+    if (actualDuration >= 20) {
+      completePracticeSessionApi({
+        durationSeconds: actualDuration,
+        sessionTitle: activePrompt.word ? `Word - ${activePrompt.word}` : activePrompt.prompt,
+      }).catch(() => {});
+    }
 
     if (!canAnalyze) {
       // All 3 free speech analyses used up -> show upgrade/trial prompt directly

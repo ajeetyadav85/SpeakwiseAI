@@ -4,6 +4,7 @@ import { useAudioStudioStore } from '../stores/useAudioStudioStore';
 import { useSubscriptionStore } from '../stores/useSubscriptionStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import { triggerGoogleAuth } from '../config/firebase';
+import { completePracticeSessionApi } from '../services/api';
 import {
   Mic,
   Pause,
@@ -46,6 +47,7 @@ export const LiveStudioPage: React.FC = () => {
   const navigate = useNavigate();
   const {
     status,
+    selectedMode,
     activeTopic,
     durationSeconds,
     currentWpm,
@@ -247,6 +249,16 @@ export const LiveStudioPage: React.FC = () => {
     if (!isAuthenticated) {
       setShowGuestAuthModal(true);
       return;
+    }
+
+    const duration = useAudioStudioStore.getState().durationSeconds;
+    // Award XP on completed practice session of >= 20s, whether or not analysis runs
+    if (duration >= 20) {
+      completePracticeSessionApi({
+        durationSeconds: duration,
+        sessionTitle: activeTopic ? activeTopic.title : 'Free Rehearsal Studio',
+        mode: selectedMode,
+      }).catch(() => {});
     }
 
     // 1. Check Trial Attempts with backend

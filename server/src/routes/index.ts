@@ -10,6 +10,7 @@ import contentRoutes from './content.routes.js';
 import usageRoutes from './usage.routes.js';
 import gamificationRoutes from './gamification.routes.js';
 import { createOrderController, verifyPaymentController } from '../controllers/subscription.controller.js';
+import { GamificationController } from '../controllers/gamification.controller.js';
 import { optionalJWT } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -24,6 +25,9 @@ router.use('/subscription', subscriptionRoutes);
 router.use('/content', contentRoutes);
 router.use('/usage', usageRoutes);
 router.use('/gamification', gamificationRoutes);
+
+// Direct /leaderboard endpoint
+router.get('/leaderboard', optionalJWT, GamificationController.getLeaderboard);
 
 // Direct Razorpay Standard Checkout endpoints under api router
 router.post('/create-order', optionalJWT, createOrderController);

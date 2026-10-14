@@ -636,21 +636,47 @@ export const fetchBadgesApi = async (): Promise<Achievement[]> => {
   }
 };
 
+export interface LeaderboardApiResponse {
+  period: 'weekly' | 'alltime';
+  leaderboard: LeaderboardUser[];
+  userRank: LeaderboardUser | null;
+}
+
 export const fetchLeaderboardApi = async (
-  category = 'EXP',
-  timeframe = 'ALL_TIME'
-): Promise<LeaderboardUser[]> => {
+  period: 'weekly' | 'alltime' = 'alltime'
+): Promise<LeaderboardApiResponse> => {
   try {
-    const res = await apiClient.get(`/gamification/leaderboard?category=${category}&timeframe=${timeframe}`);
-    return res.data.data;
+    const res = await apiClient.get(`/leaderboard?period=${period}`);
+    if (res.data?.data) {
+      return res.data.data;
+    }
+    return {
+      period,
+      leaderboard: [],
+      userRank: null,
+    };
   } catch (e) {
-    if (category === 'SCORE') {
-      return [...mockLeaderboardData].sort((a, b) => b.averageScore - a.averageScore).map((u, i) => ({ ...u, rank: i + 1 }));
-    }
-    if (category === 'STREAK') {
-      return [...mockLeaderboardData].sort((a, b) => b.streakDays - a.streakDays).map((u, i) => ({ ...u, rank: i + 1 }));
-    }
-    return mockLeaderboardData;
+    console.error('Failed to fetch leaderboard:', e);
+    return {
+      period,
+      leaderboard: [],
+      userRank: null,
+    };
+  }
+};
+
+export const completePracticeSessionApi = async (data: {
+  durationSeconds: number;
+  overallScore?: number;
+  sessionTitle?: string;
+  mode?: string;
+}) => {
+  try {
+    const res = await apiClient.post('/sessions/complete', data);
+    return res.data;
+  } catch (err) {
+    console.warn('Could not record practice session gamification:', err);
+    return null;
   }
 };
 

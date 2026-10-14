@@ -172,16 +172,21 @@ export interface Achievement {
 
 export interface LeaderboardUser {
   rank: number;
-  userId: string;
-  fullName: string;
-  avatarUrl: string;
-  role: string;
-  exp: number;
+  userId?: string;
+  fullName?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  avatar?: string;
+  role?: string;
+  exp?: number;
+  xp?: number;
   level: number;
-  streakDays: number;
+  tier?: string;
+  streakDays?: number;
+  streak?: number;
   averageScore: number;
-  totalPracticeMinutes: number;
-  badgeCount: number;
+  totalPracticeMinutes?: number;
+  badgeCount?: number;
   isCurrentUser?: boolean;
 }
 

@@ -16,12 +16,12 @@ export class GamificationController {
 
   public static async getLeaderboard(req: Request, res: Response): Promise<void> {
     try {
-      const category = (req.query.category as 'EXP' | 'SCORE' | 'STREAK') || 'EXP';
-      const timeframe = (req.query.timeframe as 'WEEKLY' | 'MONTHLY' | 'ALL_TIME') || 'ALL_TIME';
+      const rawPeriod = (req.query.period as string) || (req.query.timeframe as string) || 'alltime';
+      const period = rawPeriod.toLowerCase() === 'weekly' ? 'weekly' : 'alltime';
       const currentUserId = (req as any).user?.id || (req.query.userId as string);
 
-      const leaderboard = await GamificationService.getLeaderboard(category, timeframe, currentUserId);
-      res.status(200).json({ success: true, data: leaderboard });
+      const result = await GamificationService.getLeaderboardData(period, currentUserId);
+      res.status(200).json({ success: true, data: result });
     } catch (error) {
       logger.error('Error in GamificationController.getLeaderboard:', error);
       res.status(500).json({ success: false, error: 'Failed to fetch leaderboard' });

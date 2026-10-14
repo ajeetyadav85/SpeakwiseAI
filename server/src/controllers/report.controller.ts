@@ -12,10 +12,13 @@ export const getReportController = async (req: Request, res: Response, next: Nex
   }
 };
 
+import { UserModel } from '../models/User.model.js';
+import { applyPracticeSessionGamification } from '../utils/gamificationUtils.js';
+
 export const analyzeSpeechSessionController = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = req.user?.id || 'usr_demo99';
-    const { sessionId, sessionTitle, transcript } = req.body;
+    const { sessionId, sessionTitle, transcript, durationSeconds } = req.body;
 
     const report = await AIEnginePipeline.processSpeechSession({
       sessionId: sessionId || 'sess_1001',
@@ -23,6 +26,21 @@ export const analyzeSpeechSessionController = async (req: Request, res: Response
       sessionTitle: sessionTitle || 'Series A Pitch Rehearsal',
       providedTranscript: transcript,
     });
+
+    // Award XP and update streak for authenticated user on successful analysis
+    if (userId && !userId.startsWith('usr_')) {
+      try {
+        const user = await UserModel.findById(userId);
+        if (user) {
+          const rep = report as any;
+          const validDuration = Number(durationSeconds) || rep?.durationSeconds || rep?.metrics?.durationSeconds || 0;
+          applyPracticeSessionGamification(user, validDuration, rep?.overallScore || rep?.metrics?.overallScore);
+          await user.save();
+        }
+      } catch (userErr: any) {
+        console.warn('[ANALYZE CONTROLLER] Could not update user gamification stats:', userErr.message);
+      }
+    }
 
     res.status(200).json({
       success: true,

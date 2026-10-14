@@ -141,12 +141,18 @@ if (mongoose) {
         type: String,
         default: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
       },
-      streakDays: { type: Number, default: 7 },
-      totalPracticeMinutes: { type: Number, default: 142 },
-      averageScore: { type: Number, default: 88 },
+      streakDays: { type: Number, default: 0 },
+      totalPracticeMinutes: { type: Number, default: 0 },
+      averageScore: { type: Number, default: 0 },
       targetWpm: { type: Number, default: 145 },
-      exp: { type: Number, default: 1850 },
-      level: { type: Number, default: 4 },
+      exp: { type: Number, default: 0 },
+      weeklyExp: { type: Number, default: 0 },
+      weeklyExpResetAtIST: { type: String, default: '' },
+      dailyExpDateIST: { type: String, default: '' },
+      dailyExpAwarded: { type: Number, default: 0 },
+      lastPracticeDateIST: { type: String, default: '' },
+      totalSessionsCount: { type: Number, default: 0 },
+      level: { type: Number, default: 1 },
       subscriptionPlan: { type: String, default: null },
       subscriptionExpiresAt: { type: Date, default: null },
       hasUsedTrialOffer: { type: Boolean, default: false },
@@ -366,11 +372,12 @@ async function handleGoogleLogin(req, res) {
           googleId: googleId || undefined,
           avatarUrl: effectiveAvatar,
           emailVerified: true,
-          streakDays: 1,
+          streakDays: 0,
           totalPracticeMinutes: 0,
           averageScore: 0,
           targetWpm: 145,
-          exp: 100,
+          exp: 0,
+          weeklyExp: 0,
           level: 1,
         });
       } else {
@@ -556,11 +563,12 @@ async function handleRegister(req, res) {
           emailVerificationExpires: new Date(Date.now() + 10 * 60 * 1000),
           verificationAttempts: 0,
           avatarUrl: DEFAULT_AVATAR,
-          streakDays: 1,
+          streakDays: 0,
           totalPracticeMinutes: 0,
           averageScore: 0,
           targetWpm: 145,
-          exp: 100,
+          exp: 0,
+          weeklyExp: 0,
           level: 1,
         });
       }
@@ -1496,6 +1504,266 @@ async function handleUsageConsume(req, res) {
 }
 
 // ==============================================================================
+// 4B. Leaderboard & Gamification (IST date logic, 60s cache, display name formatting)
+// ==============================================================================
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 19,800,000 ms
+
+function getISTDateInfo(date = new Date()) {
+  const istTime = new Date(date.getTime() + IST_OFFSET_MS);
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(istTime.getUTCDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  const dayOfWeek = istTime.getUTCDay();
+
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  const mondayTime = new Date(istTime.getTime() - (daysSinceMonday * 24 * 60 * 60 * 1000));
+  const mYear = mondayTime.getUTCFullYear();
+  const mMonth = String(mondayTime.getUTCMonth() + 1).padStart(2, '0');
+  const mDay = String(mondayTime.getUTCDate()).padStart(2, '0');
+  const mondayDateStr = `${mYear}-${mMonth}-${mDay}`;
+
+  return { dateStr, dayOfWeek, mondayDateStr };
+}
+
+function calculateLevel(exp) {
+  if (!exp || exp <= 0) return 1;
+  return Math.max(1, Math.floor(exp / 450) + 1);
+}
+
+function getTierName(level) {
+  if (level >= 10) return 'Legendary Keynote Master';
+  if (level >= 7) return 'Gold Executive Speaker';
+  if (level >= 4) return 'Silver Orator';
+  return 'Bronze Speaker';
+}
+
+function formatDisplayName(fullName) {
+  if (!fullName || !fullName.trim()) return 'Anonymous';
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  const firstName = parts[0];
+  const lastInitial = parts[parts.length - 1][0]?.toUpperCase() || '';
+  return lastInitial ? `${firstName} ${lastInitial}.` : firstName;
+}
+
+let serverlessLeaderboardCache = {};
+const LEADERBOARD_CACHE_TTL_MS = 60 * 1000;
+
+async function handleLeaderboard(req, res) {
+  try {
+    const rawPeriod = req.query.period || req.query.timeframe || 'alltime';
+    const isWeekly = String(rawPeriod).toLowerCase() === 'weekly';
+    const cacheKey = isWeekly ? 'weekly' : 'alltime';
+    const now = Date.now();
+
+    // Authenticate requesting user if token is present
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    let requestingUserId = null;
+    if (token) {
+      const payload = verifyToken(token);
+      if (payload && payload.id) requestingUserId = payload.id;
+    }
+
+    const db = await connectDB();
+    if (!db || !UserModel) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          period: isWeekly ? 'weekly' : 'alltime',
+          leaderboard: [],
+          userRank: null,
+        },
+      });
+    }
+
+    let rawTop20 = [];
+    if (serverlessLeaderboardCache[cacheKey] && now - serverlessLeaderboardCache[cacheKey].timestamp < LEADERBOARD_CACHE_TTL_MS) {
+      rawTop20 = serverlessLeaderboardCache[cacheKey].users;
+    } else {
+      const filter = {
+        role: { $nin: ['SUPER_ADMIN', 'ORG_ADMIN'] },
+        ...(isWeekly ? { weeklyExp: { $gt: 0 } } : { exp: { $gt: 0 } }),
+      };
+      const sort = isWeekly ? { weeklyExp: -1, exp: -1 } : { exp: -1 };
+      rawTop20 = await UserModel.find(filter)
+        .select('fullName avatarUrl exp weeklyExp streakDays averageScore level')
+        .sort(sort)
+        .limit(20)
+        .lean();
+
+      serverlessLeaderboardCache[cacheKey] = {
+        timestamp: now,
+        users: rawTop20 || [],
+      };
+    }
+
+    const top20 = (rawTop20 || []).map((u, idx) => {
+      const userExp = isWeekly ? (u.weeklyExp || 0) : (u.exp || 0);
+      const lvl = calculateLevel(u.exp || 0);
+      const isCurrent = requestingUserId ? u._id?.toString() === requestingUserId : false;
+      return {
+        rank: idx + 1,
+        displayName: formatDisplayName(u.fullName),
+        avatar: u.avatarUrl || DEFAULT_AVATAR,
+        xp: userExp,
+        level: lvl,
+        tier: getTierName(lvl),
+        averageScore: u.averageScore || 0,
+        streak: u.streakDays || 0,
+        isCurrentUser: isCurrent,
+      };
+    });
+
+    let userRank = null;
+    if (requestingUserId) {
+      const inTop = top20.find((entry) => entry.isCurrentUser);
+      if (inTop) {
+        userRank = inTop;
+      } else {
+        const currentUser = await UserModel.findById(requestingUserId)
+          .select('fullName avatarUrl role exp weeklyExp streakDays averageScore level')
+          .lean();
+        if (currentUser && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'ORG_ADMIN') {
+          const userExp = isWeekly ? (currentUser.weeklyExp || 0) : (currentUser.exp || 0);
+          if (userExp > 0) {
+            const countHigher = await UserModel.countDocuments({
+              role: { $nin: ['SUPER_ADMIN', 'ORG_ADMIN'] },
+              ...(isWeekly ? { weeklyExp: { $gt: userExp } } : { exp: { $gt: userExp } }),
+            });
+            const lvl = calculateLevel(currentUser.exp || 0);
+            userRank = {
+              rank: countHigher + 1,
+              displayName: formatDisplayName(currentUser.fullName),
+              avatar: currentUser.avatarUrl || DEFAULT_AVATAR,
+              xp: userExp,
+              level: lvl,
+              tier: getTierName(lvl),
+              averageScore: currentUser.averageScore || 0,
+              streak: currentUser.streakDays || 0,
+              isCurrentUser: true,
+            };
+          }
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        period: isWeekly ? 'weekly' : 'alltime',
+        leaderboard: top20,
+        userRank,
+      },
+    });
+  } catch (err) {
+    console.error('[LEADERBOARD ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch leaderboard' });
+  }
+}
+
+async function handleCompletePracticeSession(req, res) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const payload = token ? verifyToken(token) : null;
+    if (!payload || !payload.id) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { durationSeconds, overallScore } = req.body || {};
+    const duration = Math.max(0, Math.floor(Number(durationSeconds) || 0));
+
+    const db = await connectDB();
+    if (!db || !UserModel) {
+      return res.status(500).json({ success: false, error: 'Database unavailable' });
+    }
+
+    const user = await UserModel.findById(payload.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const { dateStr, mondayDateStr } = getISTDateInfo();
+    let rawXp = 0;
+    if (duration >= 20) {
+      rawXp = 10 + Math.floor(duration / 60) * 1;
+    }
+
+    if (user.dailyExpDateIST !== dateStr) {
+      user.dailyExpDateIST = dateStr;
+      user.dailyExpAwarded = 0;
+    }
+
+    const availableToday = Math.max(0, 100 - (user.dailyExpAwarded || 0));
+    const expAwarded = Math.min(rawXp, availableToday);
+
+    if (user.weeklyExpResetAtIST !== mondayDateStr) {
+      user.weeklyExp = 0;
+      user.weeklyExpResetAtIST = mondayDateStr;
+    }
+
+    user.exp = (user.exp || 0) + expAwarded;
+    user.weeklyExp = (user.weeklyExp || 0) + expAwarded;
+    user.dailyExpAwarded = (user.dailyExpAwarded || 0) + expAwarded;
+    user.level = calculateLevel(user.exp);
+
+    const fullMinutes = Math.floor(duration / 60);
+    if (fullMinutes > 0) {
+      user.totalPracticeMinutes = (user.totalPracticeMinutes || 0) + fullMinutes;
+    }
+
+    if (user.lastPracticeDateIST === dateStr) {
+      user.streakDays = Math.max(1, user.streakDays || 1);
+    } else if (user.lastPracticeDateIST) {
+      const prevTime = Date.parse(user.lastPracticeDateIST + 'T00:00:00Z');
+      const currTime = Date.parse(dateStr + 'T00:00:00Z');
+      const diffDays = Math.round((currTime - prevTime) / (24 * 60 * 60 * 1000));
+      if (diffDays === 1) {
+        user.streakDays = (user.streakDays || 0) + 1;
+      } else if (diffDays > 1) {
+        user.streakDays = 1;
+      } else {
+        user.streakDays = Math.max(1, user.streakDays || 1);
+      }
+      user.lastPracticeDateIST = dateStr;
+    } else {
+      user.streakDays = 1;
+      user.lastPracticeDateIST = dateStr;
+    }
+
+    if (typeof overallScore === 'number' && overallScore > 0) {
+      const prevSessions = user.totalSessionsCount || 0;
+      const newSessions = prevSessions + 1;
+      const prevAvg = user.averageScore || 0;
+      user.averageScore = Math.round(((prevAvg * prevSessions) + overallScore) / newSessions);
+      user.totalSessionsCount = newSessions;
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: expAwarded > 0 ? `Earned ${expAwarded} XP!` : 'Practice session recorded',
+      data: {
+        expAwarded,
+        exp: user.exp,
+        weeklyExp: user.weeklyExp,
+        streakDays: user.streakDays,
+        level: user.level,
+        tier: getTierName(user.level),
+        averageScore: user.averageScore,
+        totalPracticeMinutes: user.totalPracticeMinutes,
+      },
+    });
+  } catch (err) {
+    console.error('[PRACTICE COMPLETE ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Failed to record practice session' });
+  }
+}
+
+// ==============================================================================
 // 5. Express Application Initialization & Route Mounting
 // ==============================================================================
 const app = express();
@@ -1543,6 +1811,16 @@ app.post(
 // 3. Usage & Trial Limit Routes
 app.get(['/api/v1/usage/status', '/api/usage/status', '/usage/status'], handleUsageStatus);
 app.post(['/api/v1/usage/consume', '/api/usage/consume', '/usage/consume'], handleUsageConsume);
+
+// 4. Leaderboard & Practice Session Gamification Routes
+app.get(
+  ['/api/v1/leaderboard', '/api/leaderboard', '/leaderboard', '/api/v1/gamification/leaderboard', '/api/gamification/leaderboard'],
+  handleLeaderboard
+);
+app.post(
+  ['/api/v1/sessions/complete', '/api/sessions/complete', '/sessions/complete', '/api/v1/sessions/practice-complete', '/api/sessions/practice-complete', '/sessions/practice-complete'],
+  handleCompletePracticeSession
+);
 
 // Default Fallback Categories (used if database is unreachable)
 const ALL_TOPIC_CATEGORIES = [

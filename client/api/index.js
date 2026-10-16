@@ -873,8 +873,11 @@ async function handleGetMe(req, res) {
     payload = verifyToken(token);
   }
 
-  const email = payload?.email || 'speaker@speakwise.ai';
-  const userId = payload?.id || 'usr_default';
+  if (!payload?.email && !payload?.id) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  const email = payload.email;
+  const userId = payload.id;
 
   let dbUser = null;
   try {

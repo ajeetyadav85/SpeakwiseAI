@@ -98,6 +98,7 @@ export interface PronunciationAnalysis {
   rhythmScore: number;
   mispronouncedWords: MispronouncedWord[];
   phoneticExercises: PhoneticExercise[];
+  isEstimated?: boolean;
 }
 
 export interface SpeechReport {

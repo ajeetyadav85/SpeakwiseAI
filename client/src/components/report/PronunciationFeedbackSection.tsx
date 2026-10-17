@@ -31,86 +31,11 @@ export const PronunciationFeedbackSection: React.FC<PronunciationFeedbackSection
   const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'VOWEL' | 'STRESS' | 'CONSONANT'>('ALL');
   const [activeExerciseIndex, setActiveExerciseIndex] = useState<number>(0);
 
-  // Fallback data if report did not have pronunciationAnalysis populated
-  const defaultData: PronunciationAnalysis = {
-    overallPronunciationScore: 89,
-    phonemicAccuracyScore: 91,
-    intonationScore: 86,
-    rhythmScore: 90,
-    mispronouncedWords: [
-      {
-        word: 'revolutionizing',
-        ipaExpected: '/ˌrev.əˈluː.ʃən.aɪ.zɪŋ/',
-        ipaDetected: '/ˌrev.əˈluː.ʃən.eɪ.zɪŋ/',
-        syllableBreakdown: 'rev-o-LU-tion-i-zing',
-        stressPattern: 'Primary stress on 3rd syllable "LU"',
-        issueType: 'Vowel diphthong shift (/aɪ/ vs /eɪ/)',
-        phoneticTip: 'Open your jaw slightly wider and glide smoothly from the open /a/ vowel towards /ɪ/. Avoid flattening the sound into a rigid "ay".',
-        practiceExercise: 'Repeat smoothly: "Revolutionize -> Revolutionizing -> Revolutionized"',
-        audioWord: 'revolutionizing',
-      },
-      {
-        word: 'instantaneously',
-        ipaExpected: '/ˌɪn.stənˈteɪ.ni.əs.li/',
-        ipaDetected: '/ˌɪn.stənˈtiː.ni.əs.li/',
-        syllableBreakdown: 'in-stan-TA-ne-ous-ly',
-        stressPattern: 'Primary stress on 3rd syllable "TA"',
-        issueType: 'Syllable vowel compression',
-        phoneticTip: 'Give full vocal weight and length to the stressed "TA" /teɪ/ syllable before resolving into "-ne-ous-ly".',
-        practiceExercise: 'Rhythmic tap drill: in-stan-[TAP]-ne-ous-ly.',
-        audioWord: 'instantaneously',
-      },
-      {
-        word: 'multimodal',
-        ipaExpected: '/ˌmʌl.tiˈmoʊ.dəl/',
-        ipaDetected: '/ˌmʊl.tiˈmɒ.dəl/',
-        syllableBreakdown: 'mul-ti-MO-dal',
-        stressPattern: 'Primary stress on 3rd syllable "MO"',
-        issueType: 'Vowel rounding (/oʊ/)',
-        phoneticTip: 'Maintain a relaxed central /ʌ/ in "mul-", then round your lips firmly to form the /oʊ/ sound in "-modal".',
-        practiceExercise: 'Minimal pair contrast: "Multiple" -> "Modal" -> "Multimodal".',
-        audioWord: 'multimodal',
-      },
-    ],
-    phoneticExercises: [
-      {
-        title: 'The /aɪ/ vs /eɪ/ Vowel Clarity Matrix',
-        targetSound: 'Long /aɪ/ diphthong precision',
-        phoneticSymbol: '/aɪ/',
-        instructions: 'Focus on jaw drop when transitioning into the glide. Keep tongue high on the end sound.',
-        sampleSentences: [
-          'SpeakWise AI identifies dynamic real-time pacing metrics.',
-          'The enterprise pricing model provides high return on investment.',
-          'We utilize multi-variable acoustic scoring for executive speeches.',
-        ],
-        difficulty: 'Intermediate',
-      },
-      {
-        title: 'Polysyllabic Stress & Cadence Drill',
-        targetSound: 'Multi-syllable word stress',
-        phoneticSymbol: 'ˈ primary stress',
-        instructions: 'Pronounce the stressed syllable with 15% higher volume and longer duration than surrounding unstressed syllables.',
-        sampleSentences: [
-          'We instantaneously process proprietary acoustic telemetry.',
-          'Multimodal feedback enhances executive communication confidence.',
-        ],
-        difficulty: 'Advanced',
-      },
-      {
-        title: 'Consonant Cluster Articulation Drill',
-        targetSound: '/st/ and /tr/ clean separation',
-        phoneticSymbol: '/st/ /tr/',
-        instructions: 'Avoid inserting a neutral schwa /ə/ sound between the consonant pair. Release air crisply.',
-        sampleSentences: [
-          'Strong strategic structures support strategic success.',
-          'Crisp transcription tracks trust and transparency.',
-        ],
-        difficulty: 'Beginner',
-      },
-    ],
-  };
+  if (!pronunciation || (!pronunciation.mispronouncedWords?.length && !pronunciation.phoneticExercises?.length)) {
+    return null;
+  }
 
-  const data = pronunciation && pronunciation.mispronouncedWords?.length > 0 ? pronunciation : defaultData;
+  const data = pronunciation;
 
   // Speak word using browser Web Speech API
   const playNativeAudio = (text: string) => {
@@ -149,6 +74,16 @@ export const PronunciationFeedbackSection: React.FC<PronunciationFeedbackSection
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
+      {data.isEstimated && (
+        <div className="flex items-center justify-between p-3.5 px-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs">
+          <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold">
+            <Sparkles className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+            <span>AI-Estimated Phonetics (Computed from your actual spoken speech)</span>
+          </div>
+          <Badge variant="indigo" className="text-[10px] font-bold">Estimated</Badge>
+        </div>
+      )}
+
       {/* Top Banner: Pronunciation Dimension Meters */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="neu-flat p-5 flex flex-col justify-between">

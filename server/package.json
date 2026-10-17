@@ -16,7 +16,8 @@
     "test:e2e-sync": "tsx src/scripts/testE2EProSync.ts",
     "test:self-healing": "tsx src/scripts/testSelfHealing.ts",
     "test:user-guard": "tsx src/scripts/testUserExistencePaymentGuard.ts",
-    "test:auth": "tsx src/scripts/testAuthFlows.ts"
+    "test:auth": "tsx src/scripts/testAuthFlows.ts",
+    "test:speech-analysis": "tsx src/scripts/testSpeechAnalysisPipeline.ts"
   },
   "dependencies": {
     "@types/nodemailer": "^8.0.2",

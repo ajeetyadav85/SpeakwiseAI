@@ -1,8 +1,8 @@
-import { SpeechReport } from '../types';
+import { SpeechReport, PronunciationAnalysis, FillerWordOccurrence } from '../types';
 
 export interface EvaluatedScoreResult {
   overallScore: number;
-  rating: 'Excellent' | 'Good' | 'Average' | 'Needs Work' | 'No Speech Detected';
+  rating: 'Excellent' | 'Good' | 'Average' | 'Needs Work';
   grammarScore: number;
   fluencyScore: number;
   vocabularyScore: number;
@@ -15,127 +15,126 @@ export interface EvaluatedScoreResult {
   wordCount: number;
   detectedWpm: number;
   fillerCount: number;
+  rephrasedSuggestions?: {
+    originalText: string;
+    improvedText: string;
+    reasoning: string;
+  }[];
+  pronunciationAnalysis?: PronunciationAnalysis;
 }
+
+export interface SharedAnalysisParams {
+  transcript: string;
+  durationSeconds: number;
+  topicTitle: string;
+  topicCategory?: string;
+  wordConfidenceMap?: Record<string, number>;
+}
+
+export type SharedAnalysisResult =
+  | {
+      status: 'SUCCESS';
+      report: SpeechReport;
+    }
+  | {
+      status: 'TOO_SHORT';
+      wordCount: number;
+      message: string;
+    }
+  | {
+      status: 'ERROR';
+      error: string;
+    };
 
 export class SpeechEvaluatorService {
   /**
    * Retrieves the configured Gemini API key
    */
-  private static getApiKey(): string | null {
+  public static getApiKey(): string | null {
     const key =
-      (import.meta.env.VITE_GEMINI_API_KEY as string) ||
-      (import.meta.env.GEMINI_API_KEY as string) ||
+      (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY as string) ||
+      (typeof import.meta !== 'undefined' && import.meta.env?.GEMINI_API_KEY as string) ||
+      (typeof process !== 'undefined' ? (process.env?.VITE_GEMINI_API_KEY || process.env?.GEMINI_API_KEY) : '') ||
       '';
     return key && key.trim().length > 10 ? key.trim() : null;
   }
 
   /**
-   * Evaluates spoken speech against the assigned topic using Google Gemini AI,
-   * with strict fallback logic that never shows fake high scores for silence.
+   * Unified speech analysis function used by all pages (Homepage, LiveStudioPage, etc.)
+   * Enforces:
+   * - At least 10 words required (never score < 10 words, show "Not enough speech detected")
+   * - Uses Google Gemini AI evaluation directly on actual spoken transcript
+   * - Never falls back to mock/fake scores; returns ERROR on Gemini failure
+   * - Computes phonetics from speech recognition confidence or Gemini (labeled as estimate)
    */
-  public static async evaluateSpeech(params: {
-    topicTitle: string;
-    topicCategory: string;
-    transcript: string;
-    durationSeconds: number;
-  }): Promise<EvaluatedScoreResult> {
-    const { topicTitle, topicCategory, transcript, durationSeconds } = params;
+  public static async runSharedSpeechAnalysis(params: SharedAnalysisParams): Promise<SharedAnalysisResult> {
+    const { transcript, durationSeconds, topicTitle, topicCategory = 'General', wordConfidenceMap } = params;
     const cleanTranscript = (transcript || '').trim();
     const words = cleanTranscript.length > 0 ? cleanTranscript.split(/\s+/).filter(Boolean) : [];
     const wordCount = words.length;
-    const actualDuration = Math.max(3, durationSeconds);
-    const calculatedWpm = Math.round((wordCount / (actualDuration / 60)));
 
-    // =========================================================================
-    // CASE 1: ZERO SPEECH DETECTED (User did not speak or microphone was silent)
-    // =========================================================================
-    if (wordCount === 0) {
+    // Minimum 10 words required for speech assessment
+    if (wordCount < 10) {
       return {
-        overallScore: 0,
-        rating: 'No Speech Detected',
-        grammarScore: 0,
-        fluencyScore: 0,
-        vocabularyScore: 0,
-        confidenceScore: 0,
-        summary: 'No spoken words were detected during this recording session.',
-        strengths: ['Microphone connection initialized.'],
-        areasForImprovement: [
-          'No speech was captured. Please ensure your microphone is enabled, permissions are granted in your browser, and speak audibly at normal volume.',
-        ],
-        drillTitle: 'Microphone & Voice Level Calibration Drill',
-        drillInstructions:
-          'Speak 2-3 full sentences out loud while watching the Live Transcription text box in the recording card to confirm your words appear in real-time.',
-        wordCount: 0,
-        detectedWpm: 0,
-        fillerCount: 0,
-      };
-    }
-
-    // =========================================================================
-    // CASE 2: VERY BRIEF SPEECH (1 to 4 words, e.g. "hello", "testing mic")
-    // =========================================================================
-    if (wordCount < 5) {
-      const isWord = wordCount === 1;
-      return {
-        overallScore: Math.min(25, wordCount * 6),
-        rating: 'Needs Work',
-        grammarScore: 25,
-        fluencyScore: 20,
-        vocabularyScore: 20,
-        confidenceScore: 25,
-        summary: `Only ${wordCount} ${isWord ? 'word was' : 'words were'} captured ("${cleanTranscript}"). An accurate assessment requires continuous speaking.`,
-        strengths: [`Word captured: "${cleanTranscript}"`],
-        areasForImprovement: [
-          `Session was too brief (${wordCount} words across ${actualDuration}s). Aim to speak for at least 30 seconds with complete, structured sentences.`,
-        ],
-        drillTitle: '3-Sentence Expansion Drill',
-        drillInstructions:
-          '1. State your primary point clearly. 2. Provide a concrete example or reason. 3. Summarize with an executive takeaway.',
+        status: 'TOO_SHORT',
         wordCount,
-        detectedWpm: calculatedWpm,
-        fillerCount: 0,
+        message: 'Not enough speech detected. Please speak for at least 10 words to generate an accurate speech evaluation.',
       };
     }
 
-    // =========================================================================
-    // CASE 3: REAL SPOKEN SPEECH -> EVALUATE USING GOOGLE GEMINI AI
-    // =========================================================================
-    const apiKey = this.getApiKey();
-    if (apiKey) {
-      try {
-        const geminiResult = await this.callGeminiEvaluation({
-          topicTitle,
-          topicCategory,
-          transcript: cleanTranscript,
-          durationSeconds: actualDuration,
-          wordCount,
-          calculatedWpm,
-          apiKey,
-        });
+    const actualDuration = Math.max(3, durationSeconds);
+    const calculatedWpm = Math.round(wordCount / (actualDuration / 60));
 
-        if (geminiResult) {
-          return geminiResult;
-        }
-      } catch (err) {
-        console.warn('Gemini AI speech evaluation failed, using deterministic transcript engine:', err);
-      }
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      return {
+        status: 'ERROR',
+        error: 'Speech evaluation service is not configured. Please verify your configuration.',
+      };
     }
 
-    // =========================================================================
-    // CASE 4: DETERMINISTIC TRANSCRIPT EVALUATOR (No fake scores!)
-    // Evaluates actual vocabulary richness, WPM pace, fillers, and grammar structure
-    // =========================================================================
-    return this.evaluateTranscriptDeterministically({
-      topicTitle,
-      transcript: cleanTranscript,
-      words,
-      durationSeconds: actualDuration,
-      calculatedWpm,
-    });
+    try {
+      const geminiResult = await this.callGeminiEvaluation({
+        topicTitle,
+        topicCategory,
+        transcript: cleanTranscript,
+        durationSeconds: actualDuration,
+        wordCount,
+        calculatedWpm,
+        apiKey,
+        wordConfidenceMap,
+      });
+
+      if (!geminiResult) {
+        return {
+          status: 'ERROR',
+          error: 'Speech evaluation failed to generate a valid report. Please retry.',
+        };
+      }
+
+      const report = this.createSpeechReport(
+        geminiResult,
+        topicTitle,
+        cleanTranscript,
+        actualDuration,
+        wordConfidenceMap
+      );
+
+      return {
+        status: 'SUCCESS',
+        report,
+      };
+    } catch (err: any) {
+      console.error('Speech evaluation error:', err);
+      return {
+        status: 'ERROR',
+        error: err?.message || 'Speech evaluation failed. Please check your network and retry.',
+      };
+    }
   }
 
   /**
-   * Calls Google Gemini API for deep contextual assessment
+   * Calls Google Gemini API for deep contextual assessment strictly from what user said
    */
   private static async callGeminiEvaluation(params: {
     topicTitle: string;
@@ -145,8 +144,19 @@ export class SpeechEvaluatorService {
     wordCount: number;
     calculatedWpm: number;
     apiKey: string;
+    wordConfidenceMap?: Record<string, number>;
   }): Promise<EvaluatedScoreResult | null> {
-    const { topicTitle, topicCategory, transcript, durationSeconds, wordCount, calculatedWpm, apiKey } = params;
+    const { topicTitle, topicCategory, transcript, durationSeconds, wordCount, calculatedWpm, apiKey, wordConfidenceMap } = params;
+
+    let confidenceNotice = '';
+    if (wordConfidenceMap && Object.keys(wordConfidenceMap).length > 0) {
+      const lowConfidenceWords = Object.entries(wordConfidenceMap)
+        .filter(([_, conf]) => conf < 0.85)
+        .map(([w, c]) => `"${w}" (recognition confidence: ${Math.round(c * 100)}%)`);
+      if (lowConfidenceWords.length > 0) {
+        confidenceNotice = `Speech Recognition flags lower acoustic confidence on: ${lowConfidenceWords.join(', ')}. Pay special attention to these in the pronunciation analysis.`;
+      }
+    }
 
     const promptText = `You are an expert speech evaluator and public speaking coach for SpeakWise AI.
 Analyze the user's spoken transcript against the given speech topic.
@@ -156,16 +166,18 @@ Speaking Duration: ${durationSeconds} seconds
 Total Words Spoken: ${wordCount}
 Pacing: ${calculatedWpm} WPM
 User Spoken Transcript: "${transcript}"
+${confidenceNotice}
 
 Evaluation Guidelines:
-1. Evaluate strictly based on the words the user actually spoke.
+1. Evaluate strictly based on the words the user actually spoke. Do not assume content that was not spoken.
 2. Grammar: Check sentence completeness, subject-verb agreement, and phrasing (0-100).
 3. Fluency: Check pacing cadence, natural phrasing, flow, and disfluency control (0-100).
 4. Vocabulary: Check lexical variety, word sophistication, and relevance to the topic (0-100).
 5. Confidence: Check assertiveness, conviction, and absence of excessive hesitation (0-100).
-6. Overall Score: Weighted average of the 4 metrics (0-100).
+6. Overall Score: Weighted average of the metrics (0-100).
 7. Rating: "Excellent" (85-100), "Good" (75-84), "Average" (60-74), or "Needs Work" (<60).
-8. If the speech was very short, off-topic, or disjointed, give appropriately low scores (e.g. 35-55). Do NOT give 80+ to weak speech!
+8. Rephrased Suggestions: Extract 1-2 actual sentences or phrases from what the user said, and show an improved executive version with reasoning.
+9. Pronunciation & Phonetics: Identify 1-3 words from the transcript that may present phonetic or enunciation challenges based on what was said. Provide standard IPA phonetic representations, syllable breakdown with primary stress in caps, phonetic tips, and targeted phonetic exercises based on the sounds in their speech.
 
 Respond strictly with valid JSON only (no markdown code blocks, no backticks):
 {
@@ -179,11 +191,45 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
   "strengths": ["1-2 specific strengths observed in their speech"],
   "areasForImprovement": ["1-2 actionable improvement points based on actual errors or brevity"],
   "drillTitle": "Name of custom practice drill",
-  "drillInstructions": "Step-by-step instruction for this drill"
+  "drillInstructions": "Step-by-step instruction for this drill",
+  "rephrasedSuggestions": [
+    {
+      "originalText": "exact phrase from user transcript",
+      "improvedText": "executive rephrased version",
+      "reasoning": "why this improves rhetorical impact"
+    }
+  ],
+  "pronunciationAnalysis": {
+    "overallPronunciationScore": number,
+    "phonemicAccuracyScore": number,
+    "intonationScore": number,
+    "rhythmScore": number,
+    "mispronouncedWords": [
+      {
+        "word": "word from the transcript",
+        "ipaExpected": "/.../",
+        "ipaDetected": "/.../",
+        "syllableBreakdown": "syl-LA-ble",
+        "stressPattern": "Primary stress on X syllable",
+        "issueType": "Vowel clarity / Syllable stress / Consonant articulation",
+        "phoneticTip": "Specific mouth and tongue placement guidance",
+        "practiceExercise": "Short sentence to practice"
+      }
+    ],
+    "phoneticExercises": [
+      {
+        "title": "Exercise title",
+        "targetSound": "Target sound",
+        "phoneticSymbol": "IPA symbol",
+        "instructions": "Practice instructions",
+        "sampleSentences": ["Sentence 1", "Sentence 2"],
+        "difficulty": "Beginner" | "Intermediate" | "Advanced"
+      }
+    ]
+  }
 }`;
 
-    // Available Gemini models
-    const models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+    const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-flash-latest'];
 
     for (const model of models) {
       try {
@@ -223,6 +269,19 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
         const fillerMatches = transcript.match(/\b(um|uh|erm|like|you know|basically|actually)\b/gi);
         const fillerCount = fillerMatches ? fillerMatches.length : 0;
 
+        let pronunciationData: PronunciationAnalysis | undefined;
+        if (parsed.pronunciationAnalysis && Array.isArray(parsed.pronunciationAnalysis.mispronouncedWords)) {
+          pronunciationData = {
+            overallPronunciationScore: Math.max(10, Math.min(99, Math.round(parsed.pronunciationAnalysis.overallPronunciationScore || grammar))),
+            phonemicAccuracyScore: Math.max(10, Math.min(99, Math.round(parsed.pronunciationAnalysis.phonemicAccuracyScore || grammar))),
+            intonationScore: Math.max(10, Math.min(99, Math.round(parsed.pronunciationAnalysis.intonationScore || fluency))),
+            rhythmScore: Math.max(10, Math.min(99, Math.round(parsed.pronunciationAnalysis.rhythmScore || fluency))),
+            mispronouncedWords: parsed.pronunciationAnalysis.mispronouncedWords,
+            phoneticExercises: Array.isArray(parsed.pronunciationAnalysis.phoneticExercises) ? parsed.pronunciationAnalysis.phoneticExercises : [],
+            isEstimated: true,
+          };
+        }
+
         return {
           overallScore: overall,
           rating,
@@ -242,6 +301,8 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
           wordCount,
           detectedWpm: calculatedWpm,
           fillerCount,
+          rephrasedSuggestions: Array.isArray(parsed.rephrasedSuggestions) ? parsed.rephrasedSuggestions : undefined,
+          pronunciationAnalysis: pronunciationData,
         };
       } catch (e) {
         // Try next model
@@ -252,126 +313,42 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
   }
 
   /**
-   * Deterministic evaluation based on actual linguistic metrics
-   */
-  private static evaluateTranscriptDeterministically(params: {
-    topicTitle: string;
-    transcript: string;
-    words: string[];
-    durationSeconds: number;
-    calculatedWpm: number;
-  }): EvaluatedScoreResult {
-    const { topicTitle, transcript, words, durationSeconds, calculatedWpm } = params;
-    const wordCount = words.length;
-
-    // 1. Detect Fillers
-    const fillerRegex = /\b(um|uh|erm|like|you know|basically|actually|so yeah)\b/gi;
-    const fillerMatches = transcript.match(fillerRegex);
-    const fillerCount = fillerMatches ? fillerMatches.length : 0;
-
-    // 2. Lexical Diversity (Unique words / Total words)
-    const lowerWords = words.map((w) => w.toLowerCase().replace(/[^a-z]/g, ''));
-    const uniqueWords = new Set(lowerWords.filter(Boolean));
-    const diversityRatio = uniqueWords.size / Math.max(1, wordCount);
-
-    // 3. WPM Pacing Score (Target: 125-155 WPM)
-    let pacingScore = 90;
-    if (calculatedWpm < 110) pacingScore -= (110 - calculatedWpm) * 0.7;
-    else if (calculatedWpm > 165) pacingScore -= (calculatedWpm - 165) * 0.6;
-    pacingScore = Math.max(35, Math.min(96, Math.round(pacingScore)));
-
-    // 4. Fluency Score
-    const fillerPenalty = Math.min(30, fillerCount * 6);
-    const fluencyScore = Math.max(30, Math.min(95, Math.round(pacingScore - fillerPenalty)));
-
-    // 5. Vocabulary Score based on lexical diversity & word length
-    const avgWordLen = words.reduce((acc, w) => acc + w.length, 0) / Math.max(1, wordCount);
-    let vocabScore = Math.round(diversityRatio * 60 + avgWordLen * 6);
-    vocabScore = Math.max(35, Math.min(94, vocabScore));
-
-    // 6. Grammar Score
-    let grammarScore = 75;
-    if (wordCount < 15) grammarScore -= 15;
-    if (fillerCount > 3) grammarScore -= (fillerCount - 3) * 3;
-    // Check for double words like "the the"
-    const doubleWordMatch = transcript.match(/\b(\w+)\s+\1\b/gi);
-    if (doubleWordMatch) grammarScore -= doubleWordMatch.length * 5;
-    grammarScore = Math.max(30, Math.min(95, grammarScore));
-
-    // 7. Confidence Score
-    let confidenceScore = Math.round((fluencyScore * 0.5) + (pacingScore * 0.5));
-    if (durationSeconds >= 30 && wordCount >= 35) confidenceScore += 5;
-    confidenceScore = Math.max(35, Math.min(95, confidenceScore));
-
-    // 8. Overall Weighted Score
-    const overallScore = Math.round(
-      grammarScore * 0.25 + fluencyScore * 0.25 + vocabScore * 0.25 + confidenceScore * 0.25
-    );
-
-    const rating: 'Excellent' | 'Good' | 'Average' | 'Needs Work' =
-      overallScore >= 85 ? 'Excellent' : overallScore >= 75 ? 'Good' : overallScore >= 60 ? 'Average' : 'Needs Work';
-
-    // Contextual Strengths & Improvement Points
-    const strengths: string[] = [];
-    const areasForImprovement: string[] = [];
-
-    if (pacingScore >= 80) {
-      strengths.push(`Maintained an optimal conversational speaking pace at ${calculatedWpm} WPM.`);
-    } else if (calculatedWpm < 110) {
-      areasForImprovement.push(`Speaking pace was slightly slow (${calculatedWpm} WPM). Aim for 125-145 WPM to keep momentum.`);
-    } else {
-      areasForImprovement.push(`Pacing was rapid (${calculatedWpm} WPM). Incorporate deliberate pauses before key transitions.`);
-    }
-
-    if (fillerCount === 0) {
-      strengths.push(`Clean delivery with zero detected conversational fillers (no 'um', 'uh', or 'like').`);
-    } else {
-      areasForImprovement.push(`Detected ${fillerCount} filler word(s). Replace fillers with silent breaths.`);
-    }
-
-    if (diversityRatio >= 0.7) {
-      strengths.push(`Strong vocabulary variety with ${uniqueWords.size} unique words across ${wordCount} spoken words.`);
-    }
-
-    if (strengths.length === 0) {
-      strengths.push(`Delivered ${wordCount} words on the topic within ${durationSeconds} seconds.`);
-    }
-    if (areasForImprovement.length === 0) {
-      areasForImprovement.push(`Challenge yourself with longer 90-second speeches to deepen your argumentative structure.`);
-    }
-
-    return {
-      overallScore,
-      rating,
-      grammarScore,
-      fluencyScore,
-      vocabularyScore: vocabScore,
-      confidenceScore,
-      summary: `Delivered ${wordCount} words at ${calculatedWpm} WPM with ${fillerCount} filler word(s) on "${topicTitle}".`,
-      strengths,
-      areasForImprovement,
-      drillTitle: fillerCount > 2 ? 'Silent Pause Breathing Drill' : 'Cadence Modulation Drill',
-      drillInstructions:
-        fillerCount > 2
-          ? 'Whenever you feel an "um" coming, close your lips and take a silent 2-second breath before continuing.'
-          : 'Practice speaking at a consistent 135 WPM pace using a timer to lock in your natural cadence.',
-      wordCount,
-      detectedWpm: calculatedWpm,
-      fillerCount,
-    };
-  }
-
-  /**
    * Helper to convert an EvaluatedScoreResult into a full SpeechReport object
    */
   public static createSpeechReport(
     evalResult: EvaluatedScoreResult,
     topicTitle: string,
     transcript: string,
-    durationSeconds: number
+    durationSeconds: number,
+    wordConfidenceMap?: Record<string, number>
   ): SpeechReport {
     const reportId = 'rep_' + Math.floor(Math.random() * 89999 + 10000);
     const currentDate = new Date().toISOString().split('T')[0];
+
+    // Find actual filler word occurrences in the user's transcript
+    const fillerRegex = /\b(um|uh|erm|like|you know|basically|actually)\b/gi;
+    const fillerWords: FillerWordOccurrence[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = fillerRegex.exec(transcript)) !== null) {
+      fillerWords.push({
+        word: match[0].toLowerCase(),
+        timestampStart: 0,
+        timestampEnd: 0.3,
+      });
+    }
+
+    // Pronunciation analysis: from Gemini (labeled as estimate) or speech recognition
+    let finalPronunciation = evalResult.pronunciationAnalysis;
+    if (finalPronunciation && wordConfidenceMap && Object.keys(wordConfidenceMap).length > 0) {
+      // If we also had recognition confidence, compute average
+      const confValues = Object.values(wordConfidenceMap);
+      if (confValues.length > 0) {
+        const avgConfidence = confValues.reduce((a, b) => a + b, 0) / confValues.length;
+        finalPronunciation.phonemicAccuracyScore = Math.round(avgConfidence * 100);
+      }
+    }
+
+    const pronunciationScore = finalPronunciation?.overallPronunciationScore || evalResult.grammarScore;
 
     return {
       id: reportId,
@@ -388,15 +365,14 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
         persuasivenessScore: evalResult.confidenceScore,
         confidence: evalResult.confidenceScore,
         fluency: evalResult.fluencyScore,
-        pronunciation: evalResult.grammarScore,
+        pronunciation: pronunciationScore,
         grammar: evalResult.grammarScore,
         vocabulary: evalResult.vocabularyScore,
         speakingPace: evalResult.fluencyScore,
-        eyeContact: evalResult.overallScore > 0 ? 85 : 0,
-      } as any,
+      },
       acousticMetrics: {
         averageWpm: evalResult.detectedWpm,
-        wpmVariance: 10.0,
+        wpmVariance: 8.5,
         pitchMinHz: 120,
         pitchMaxHz: 220,
         pitchMeanHz: 160,
@@ -404,7 +380,7 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
         totalPauseDurationSeconds: Math.round(durationSeconds * 0.08),
         averageVolumeDecibels: evalResult.wordCount > 0 ? -18.0 : -60.0,
       },
-      fillerWords: [],
+      fillerWords,
       transcript: transcript || 'No speech detected.',
       transcriptSegments: [
         {
@@ -420,7 +396,9 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
         strengths: evalResult.strengths,
         areasForImprovement: evalResult.areasForImprovement,
         rephrasedSuggestions:
-          evalResult.wordCount > 0
+          evalResult.rephrasedSuggestions && evalResult.rephrasedSuggestions.length > 0
+            ? evalResult.rephrasedSuggestions
+            : evalResult.wordCount > 0
             ? [
                 {
                   originalText: transcript.slice(0, 60),
@@ -437,6 +415,7 @@ Respond strictly with valid JSON only (no markdown code blocks, no backticks):
           },
         ],
       },
+      pronunciationAnalysis: finalPronunciation,
     };
   }
 }

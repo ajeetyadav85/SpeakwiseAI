@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { PracticeMode, Topic, SpeechReport } from '../types';
-import { SpeechEvaluatorService } from '../services/speechEvaluator.service';
+import { SpeechEvaluatorService, SharedAnalysisResult } from '../services/speechEvaluator.service';
 import { useReportStore } from './useReportStore';
 
 export type RecordingStatus = 'IDLE' | 'CALIBRATING' | 'RECORDING' | 'PAUSED' | 'PROCESSING' | 'COMPLETED';
@@ -30,9 +30,10 @@ interface AudioStudioState {
   startRecording: () => void;
   pauseRecording: () => void;
   resumeRecording: () => void;
-  stopRecording: () => Promise<string>;
+  stopRecording: (wordConfidenceMap?: Record<string, number>) => Promise<SharedAnalysisResult>;
   resetStudio: () => void;
   addTranscriptChunk: (chunk: { text: string; isFiller?: boolean; timestamp: number }) => void;
+  clearTranscript: () => void;
   updateStats: (wpm: number, fillers: number) => void;
 }
 
@@ -54,7 +55,7 @@ export const useAudioStudioStore = create<AudioStudioState>((set, get) => ({
   selectedMode: 'ELEVATOR_PITCH',
   activeTopic: defaultTopic,
   durationSeconds: 0,
-  currentWpm: 140,
+  currentWpm: 0,
   fillerCount: 0,
   liveTranscript: [],
   teleprompterText: `Good morning everyone. Today, I'm thrilled to introduce SpeakWise AI—our real-time AI communication coach designed to transform public speaking confidence.
@@ -79,48 +80,47 @@ Notice how maintaining an optimal pace between 130 and 150 words per minute allo
     set({
       status: 'RECORDING',
       durationSeconds: 0,
+      currentWpm: 0,
       fillerCount: 0,
-      liveTranscript: [
-        { text: 'Starting session calibration...', timestamp: 0 },
-      ],
+      liveTranscript: [],
+      latestReportId: null,
     });
   },
 
   pauseRecording: () => set({ status: 'PAUSED' }),
   resumeRecording: () => set({ status: 'RECORDING' }),
 
-  stopRecording: async () => {
+  stopRecording: async (wordConfidenceMap?: Record<string, number>): Promise<SharedAnalysisResult> => {
     set({ status: 'PROCESSING' });
 
     const state = get();
     const fullTranscript = state.liveTranscript.map((c) => c.text).join(' ').trim();
     const duration = Math.max(1, state.durationSeconds);
 
-    const evalResult = await SpeechEvaluatorService.evaluateSpeech({
+    const result = await SpeechEvaluatorService.runSharedSpeechAnalysis({
       topicTitle: state.activeTopic ? state.activeTopic.title : 'Free Speech Rehearsal',
       topicCategory: state.activeTopic?.category || 'General',
       transcript: fullTranscript,
       durationSeconds: duration,
+      wordConfidenceMap,
     });
 
-    const report = SpeechEvaluatorService.createSpeechReport(
-      evalResult,
-      state.activeTopic ? state.activeTopic.title : 'Free Speech Rehearsal',
-      fullTranscript,
-      duration
-    );
+    if (result.status === 'SUCCESS') {
+      // Save report into useReportStore
+      useReportStore.getState().saveReport(result.report);
+      set({ status: 'COMPLETED', latestReportId: result.report.id });
+    } else {
+      set({ status: 'IDLE' });
+    }
 
-    // Save report into useReportStore
-    useReportStore.getState().saveReport(report);
-
-    set({ status: 'COMPLETED', latestReportId: report.id });
-    return report.id;
+    return result;
   },
 
   resetStudio: () =>
     set({
       status: 'IDLE',
       durationSeconds: 0,
+      currentWpm: 0,
       fillerCount: 0,
       liveTranscript: [],
       latestReportId: null,
@@ -131,6 +131,8 @@ Notice how maintaining an optimal pace between 130 and 150 words per minute allo
       liveTranscript: [...state.liveTranscript, chunk],
       fillerCount: chunk.isFiller ? state.fillerCount + 1 : state.fillerCount,
     })),
+
+  clearTranscript: () => set({ liveTranscript: [], currentWpm: 0, fillerCount: 0 }),
 
   updateStats: (wpm, fillers) => set({ currentWpm: wpm, fillerCount: fillers }),
 }));

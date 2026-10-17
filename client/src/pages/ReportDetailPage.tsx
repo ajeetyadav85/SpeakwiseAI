@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useReportStore } from '../stores/useReportStore';
 import {
   ResponsiveContainer,
@@ -19,6 +19,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ArrowRight,
+  ArrowLeft,
   Download,
   Share2,
   Play,
@@ -38,6 +39,7 @@ import { ExportModal } from '../components/report/ExportModal';
 import { PronunciationFeedbackSection } from '../components/report/PronunciationFeedbackSection';
 
 export const ReportDetailPage: React.FC = () => {
+  const navigate = useNavigate();
   const { id = 'rep_88491' } = useParams<{ id: string }>();
   const getReportById = useReportStore((state) => state.getReportById);
   const report = getReportById(id);
@@ -47,8 +49,13 @@ export const ReportDetailPage: React.FC = () => {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
-
-
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/dashboard');
+    }
+  };
 
   // Time Series Data for Acoustics Graph
   const timeSeriesData = [
@@ -73,12 +80,22 @@ export const ReportDetailPage: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Report Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2">
-            <Badge variant="indigo">Report ID: {report.id}</Badge>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">• {report.date}</span>
+        <div className="flex items-start sm:items-center gap-3">
+          <button
+            onClick={handleBack}
+            className="p-2.5 rounded-2xl neu-button text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-center min-w-[44px] min-h-[44px] flex-shrink-0 cursor-pointer"
+            aria-label="Back"
+            title="Go back"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <div className="flex items-center gap-2">
+              <Badge variant="indigo">Report ID: {report.id}</Badge>
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">• {report.date}</span>
+            </div>
+            <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white mt-1">{report.sessionTitle}</h1>
           </div>
-          <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white mt-1">{report.sessionTitle}</h1>
         </div>
 
         <div className="flex items-center gap-3">
@@ -254,32 +271,46 @@ export const ReportDetailPage: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-white/20 dark:border-white/5 pb-2 overflow-x-auto">
-        {[
+      {(() => {
+        const hasPhonetics = Boolean(
+          report.pronunciationAnalysis &&
+            ((report.pronunciationAnalysis.mispronouncedWords && report.pronunciationAnalysis.mispronouncedWords.length > 0) ||
+              (report.pronunciationAnalysis.phoneticExercises && report.pronunciationAnalysis.phoneticExercises.length > 0))
+        );
+
+        const tabs = [
           { id: 'OVERVIEW', label: 'AI Re-writer & Drills' },
-          { id: 'PRONUNCIATION', label: 'AI Pronunciation & Phonetics', badge: 'AI' },
+          ...(hasPhonetics
+            ? [{ id: 'PRONUNCIATION', label: 'AI Pronunciation & Phonetics', badge: report.pronunciationAnalysis?.isEstimated ? 'Estimate' : 'AI' }]
+            : []),
           { id: 'SCORES', label: 'Detailed Metric Breakdown' },
           { id: 'TRANSCRIPT', label: 'Timestamped Transcript' },
           { id: 'ACOUSTICS', label: 'Acoustic Signal Graphs' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all flex items-center gap-2 ${
-              activeTab === tab.id
-                ? 'bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-bold'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <span>{tab.label}</span>
-            {tab.badge && (
-              <span className="text-[10px] bg-gradient-to-r from-indigo-500 to-violet-500 text-white font-extrabold px-1.5 py-0.5 rounded-full">
-                {tab.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+        ];
+
+        return (
+          <div className="flex items-center gap-2 border-b border-white/20 dark:border-white/5 pb-2 overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all flex items-center gap-2 ${
+                  activeTab === tab.id
+                    ? 'bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-bold'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span className="text-[10px] bg-gradient-to-r from-indigo-500 to-violet-500 text-white font-extrabold px-1.5 py-0.5 rounded-full">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Tab 1: AI Re-Writer & Drills */}
       {activeTab === 'OVERVIEW' && (
@@ -383,11 +414,13 @@ export const ReportDetailPage: React.FC = () => {
               <div className="text-[10px] text-slate-400">Out of 100</div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-center space-y-1">
-              <div className="text-xs font-semibold text-slate-500">Eye Contact</div>
-              <div className="text-3xl font-black font-mono text-pink-600 dark:text-pink-400">{eyeContactScore}</div>
-              <div className="text-[10px] text-slate-400">Out of 100</div>
-            </div>
+            {report.scoreBreakdown?.eyeContact != null && report.scoreBreakdown.eyeContact > 0 ? (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-center space-y-1">
+                <div className="text-xs font-semibold text-slate-500">Eye Contact</div>
+                <div className="text-3xl font-black font-mono text-pink-600 dark:text-pink-400">{eyeContactScore}</div>
+                <div className="text-[10px] text-slate-400">Out of 100</div>
+              </div>
+            ) : null}
 
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-center space-y-1">
               <div className="text-xs font-semibold text-slate-500">Voice Clarity</div>

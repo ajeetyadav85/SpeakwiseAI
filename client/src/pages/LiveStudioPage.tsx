@@ -17,6 +17,8 @@ import {
   LogIn,
   UserPlus,
   X,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -67,10 +69,25 @@ export const LiveStudioPage: React.FC = () => {
     setTeleprompterEnabled,
   } = useAudioStudioStore();
 
-  const { decrementAttempts, openSubscriptionModal } = useSubscriptionStore();
+  const { decrementAttempts, isPro } = useSubscriptionStore();
   const { isAuthenticated, loginWithGoogle } = useAuthStore();
   const [showGuestAuthModal, setShowGuestAuthModal] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [studioError, setStudioError] = useState<{ message: string; isShort: boolean } | null>(null);
+
+  const [micActive, setMicActive] = useState(false);
+  const [micVolume, setMicVolume] = useState(0);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  const teleprompterRef = useRef<HTMLDivElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const wordConfidenceMapRef = useRef<Record<string, number>>({});
+  const hasAwardedXpRef = useRef<boolean>(false);
 
   const handleGoogleLogin = async () => {
     try {
@@ -84,16 +101,6 @@ export const LiveStudioPage: React.FC = () => {
       setIsGoogleLoading(false);
     }
   };
-
-  const [micActive, setMicActive] = useState(false);
-  const [micVolume, setMicVolume] = useState(0);
-  const [autoScroll, setAutoScroll] = useState(true);
-
-  const teleprompterRef = useRef<HTMLDivElement>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const animFrameRef = useRef<number | null>(null);
 
   // Auto-reset studio state to IDLE if mounting while COMPLETED
   useEffect(() => {
@@ -125,7 +132,31 @@ export const LiveStudioPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [status]);
 
-  // Real Web Audio API Microphone Volume & Voice Activity Detection (VAD)
+  // Stop all audio streams & speech recognition
+  const stopAudioStreams = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+    setMicVolume(0);
+    setMicActive(false);
+  };
+
+  // Microphone Volume Visualizer & Real-time Speech Recognition
   useEffect(() => {
     if (status === 'RECORDING') {
       const initAudio = async () => {
@@ -164,25 +195,69 @@ export const LiveStudioPage: React.FC = () => {
         } catch (err) {
           console.warn('Microphone access unavailable or denied:', err);
         }
+
+        // Web Speech Recognition for Real Spoken Speech
+        const SpeechRecognition =
+          (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event: any) => {
+              const currentChunks: { text: string; isFiller?: boolean; timestamp: number }[] = [];
+              let fullSpoken = '';
+
+              for (let i = 0; i < event.results.length; i++) {
+                const res = event.results[i];
+                const text = res[0].transcript;
+                const conf = res[0].confidence;
+
+                if (typeof conf === 'number' && conf > 0) {
+                  text.trim().split(/\s+/).forEach((w: string) => {
+                    const clean = w.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (clean) wordConfidenceMapRef.current[clean] = conf;
+                  });
+                }
+
+                fullSpoken += text + ' ';
+                currentChunks.push({
+                  text: text.trim(),
+                  isFiller: /\b(um|uh|erm|like|you know|basically|actually)\b/i.test(text),
+                  timestamp: useAudioStudioStore.getState().durationSeconds,
+                });
+              }
+
+              useAudioStudioStore.setState({ liveTranscript: currentChunks });
+
+              const words = fullSpoken.trim().split(/\s+/).filter(Boolean);
+              const curSecs = Math.max(1, useAudioStudioStore.getState().durationSeconds);
+              const computedWpm = Math.round((words.length / (curSecs / 60)));
+              const fillerMatches = fullSpoken.match(/\b(um|uh|erm|like|you know|basically|actually)\b/gi);
+              updateStats(computedWpm, fillerMatches ? fillerMatches.length : 0);
+            };
+
+            recognition.onerror = (e: any) => {
+              console.warn('Speech recognition error in LiveStudio:', e);
+            };
+
+            recognition.start();
+            recognitionRef.current = recognition;
+          } catch (e) {
+            console.warn('Could not start speech recognition:', e);
+          }
+        }
       };
 
       initAudio();
     } else {
-      setMicVolume(0);
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+      stopAudioStreams();
     }
 
     return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      stopAudioStreams();
     };
   }, [status]);
 
@@ -199,35 +274,6 @@ export const LiveStudioPage: React.FC = () => {
     return () => clearInterval(scrollInterval);
   }, [status, teleprompterEnabled, autoScroll, teleprompterSpeed]);
 
-  // Simulated Live Transcript Streaming & Stats Update
-  useEffect(() => {
-    let streamTimer: any;
-    if (status === 'RECORDING') {
-      const samplePhrases = [
-        { text: "Good morning everyone, today I want to focus on strategic execution.", isFiller: false },
-        { text: "Um, as we consider market trends...", isFiller: true },
-        { text: "We see incredible growth potential across cloud automation.", isFiller: false },
-        { text: "Like, the key driver is user alignment.", isFiller: true },
-        { text: "In conclusion, continuous feedback ensures team success.", isFiller: false },
-      ];
-      let phraseIdx = 0;
-
-      streamTimer = setInterval(() => {
-        if (phraseIdx < samplePhrases.length) {
-          const phrase = samplePhrases[phraseIdx];
-          addTranscriptChunk({ text: phrase.text, isFiller: phrase.isFiller, timestamp: durationSeconds });
-
-          const nextWpm = Math.floor(Math.random() * (155 - 130 + 1)) + 130;
-          const nextFillers = phrase.isFiller ? fillerCount + 1 : fillerCount;
-          updateStats(nextWpm, nextFillers);
-
-          phraseIdx = (phraseIdx + 1) % samplePhrases.length;
-        }
-      }, 4000);
-    }
-    return () => clearInterval(streamTimer);
-  }, [status, durationSeconds, fillerCount, addTranscriptChunk, updateStats]);
-
   const handleStart = async () => {
     const statusResult = await useSubscriptionStore.getState().fetchUsageStatus();
     if (!statusResult.canProceed && !statusResult.isPro) {
@@ -237,23 +283,26 @@ export const LiveStudioPage: React.FC = () => {
     if (status === 'COMPLETED') {
       resetStudio();
     }
+    hasAwardedXpRef.current = false;
+    setStudioError(null);
+    wordConfidenceMapRef.current = {};
     setMicActive(true);
     startRecording();
   };
 
   const handleStop = async () => {
-    setMicActive(false);
+    stopAudioStreams();
 
     // Free speech analyses require a logged-in user:
-    // A guest can practice and record, but cannot receive analysis or consume attempts.
     if (!isAuthenticated) {
       setShowGuestAuthModal(true);
       return;
     }
 
     const duration = useAudioStudioStore.getState().durationSeconds;
-    // Award XP on completed practice session of >= 20s, whether or not analysis runs
-    if (duration >= 20) {
+    // Award XP on completed practice session of >= 20s, only once per session
+    if (duration >= 20 && !hasAwardedXpRef.current) {
+      hasAwardedXpRef.current = true;
       completePracticeSessionApi({
         durationSeconds: duration,
         sessionTitle: activeTopic ? activeTopic.title : 'Free Rehearsal Studio',
@@ -261,20 +310,84 @@ export const LiveStudioPage: React.FC = () => {
       }).catch(() => {});
     }
 
-    // 1. Check Trial Attempts with backend
-    const canAnalyze = await decrementAttempts();
-    if (!canAnalyze) {
+    // Check Trial Attempts with backend before running analysis
+    const { canProceed, isPro: userIsPro } = useSubscriptionStore.getState();
+    if (!canProceed && !userIsPro) {
+      useSubscriptionStore.getState().openUpgradeLimitModal();
       return;
     }
 
-    // 2. Process AI Speech Analysis Report and Auto-Navigate to Detailed Report Page
-    const reportId = await stopRecording();
-    navigate(`/reports/${reportId}`);
+    // Process AI Speech Analysis Report using unified Gemini pipeline
+    setIsAnalyzing(true);
+    setStudioError(null);
+    try {
+      const result = await stopRecording(wordConfidenceMapRef.current);
+
+      if (result.status === 'TOO_SHORT') {
+        setStudioError({
+          message: result.message,
+          isShort: true,
+        });
+        return;
+      }
+
+      if (result.status === 'ERROR') {
+        setStudioError({
+          message: result.error,
+          isShort: false,
+        });
+        return;
+      }
+
+      if (result.status === 'SUCCESS') {
+        if (!userIsPro) {
+          await decrementAttempts();
+        }
+        navigate(`/reports/${result.report.id}`);
+      }
+    } catch (err: any) {
+      setStudioError({
+        message: err?.message || 'Speech evaluation failed. Please retry.',
+        isShort: false,
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleRetryAnalysis = async () => {
+    setIsAnalyzing(true);
+    setStudioError(null);
+    try {
+      const result = await stopRecording(wordConfidenceMapRef.current);
+      if (result.status === 'TOO_SHORT') {
+        setStudioError({ message: result.message, isShort: true });
+        return;
+      }
+      if (result.status === 'ERROR') {
+        setStudioError({ message: result.error, isShort: false });
+        return;
+      }
+      if (result.status === 'SUCCESS') {
+        const { isPro: userIsPro } = useSubscriptionStore.getState();
+        if (!userIsPro) {
+          await decrementAttempts();
+        }
+        navigate(`/reports/${result.report.id}`);
+      }
+    } catch (err: any) {
+      setStudioError({ message: err?.message || 'Retry failed.', isShort: false });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleNewSession = () => {
+    stopAudioStreams();
     resetStudio();
-    setMicActive(false);
+    setStudioError(null);
+    hasAwardedXpRef.current = false;
+    wordConfidenceMapRef.current = {};
   };
 
   const formatTimer = (sec: number) => {
@@ -342,13 +455,72 @@ export const LiveStudioPage: React.FC = () => {
             </>
           )}
 
-          {status === 'PROCESSING' && (
+          {(status === 'PROCESSING' || isAnalyzing) && (
             <Button size="md" variant="primary" isLoading disabled className="w-full sm:w-auto justify-center rounded-full text-xs font-extrabold py-2.5">
-              Generating Speech Report...
+              SpeakWise is preparing your report...
             </Button>
           )}
         </div>
       </div>
+
+      {/* Loading Modal when preparing report */}
+      {(status === 'PROCESSING' || isAnalyzing) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in">
+          <Card className="w-full max-w-sm p-6 sm:p-8 space-y-3 neu-flat rounded-3xl text-center border border-indigo-500/30 shadow-2xl">
+            <div className="space-y-1">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center justify-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
+                <span>SpeakWise is preparing your report</span>
+              </h3>
+              <p className="text-xs text-slate-500 font-medium">Please wait</p>
+            </div>
+            <div className="w-10 h-10 rounded-full border-4 border-indigo-500/20 border-t-indigo-600 animate-spin mx-auto shadow-neu-glow mt-4" />
+          </Card>
+        </div>
+      )}
+
+      {/* Validation / Error Alert Box (No Mock Scores) */}
+      {studioError && (
+        <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in ${
+          studioError.isShort
+            ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+            : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-300'
+        }`}>
+          <div className="flex items-center gap-3">
+            <AlertCircle className={`w-5 h-5 flex-shrink-0 ${studioError.isShort ? 'text-amber-500' : 'text-rose-500'}`} />
+            <div>
+              <p className="text-xs font-bold">{studioError.message}</p>
+              {studioError.isShort && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  An assessment was not generated and your free attempts were not consumed.
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {!studioError.isShort && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={handleRetryAnalysis}
+                leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                className="text-xs font-bold"
+              >
+                Retry Analysis
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleStart}
+              leftIcon={<Mic className="w-3.5 h-3.5" />}
+              className="text-xs font-bold"
+            >
+              Record Again
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Main Studio Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

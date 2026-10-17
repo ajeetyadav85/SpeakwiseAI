@@ -134,6 +134,7 @@ export const LandingPage: React.FC = () => {
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
   const [analysisReport, setAnalysisReport] = useState<SpeechReport | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisError, setAnalysisError] = useState<{ message: string; isShort: boolean } | null>(null);
 
   // Web Audio & Speech Recognition Refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -141,6 +142,8 @@ export const LandingPage: React.FC = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const recognitionRef = useRef<any>(null);
+  const wordConfidenceMapRef = useRef<Record<string, number>>({});
+  const hasAwardedXpRef = useRef<boolean>(false);
 
   // Transcript & Timing Refs to prevent stale closure during auto-submission
   const liveTranscriptRef = useRef<string>('');
@@ -251,6 +254,9 @@ export const LandingPage: React.FC = () => {
     liveTranscriptRef.current = '';
     setShowCompletionModal(false);
     setAnalysisReport(null);
+    setAnalysisError(null);
+    hasAwardedXpRef.current = false;
+    wordConfidenceMapRef.current = {};
 
     // Initialize Web Audio API Microphone Volume meter
     try {
@@ -300,7 +306,16 @@ export const LandingPage: React.FC = () => {
         recognition.onresult = (event: any) => {
           let currentTrans = '';
           for (let i = 0; i < event.results.length; i++) {
-            currentTrans += event.results[i][0].transcript + ' ';
+            const res = event.results[i];
+            const text = res[0].transcript;
+            const conf = res[0].confidence;
+            if (typeof conf === 'number' && conf > 0) {
+              text.trim().split(/\s+/).forEach((w: string) => {
+                const clean = w.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (clean) wordConfidenceMapRef.current[clean] = conf;
+              });
+            }
+            currentTrans += text + ' ';
           }
           const trimmed = currentTrans.trim();
           liveTranscriptRef.current = trimmed;
@@ -385,8 +400,9 @@ export const LandingPage: React.FC = () => {
     const actualDuration = Math.max(1, elapsedSecondsRef.current || elapsedSeconds);
     const spokenTranscript = (liveTranscriptRef.current || liveTranscript).trim();
 
-    // Award XP on completed practice session of >= 20s, whether or not analysis runs
-    if (actualDuration >= 20) {
+    // Award XP on completed practice session of >= 20s, only once per session
+    if (actualDuration >= 20 && !hasAwardedXpRef.current) {
+      hasAwardedXpRef.current = true;
       completePracticeSessionApi({
         durationSeconds: actualDuration,
         sessionTitle: activePrompt.word ? `Word - ${activePrompt.word}` : activePrompt.prompt,
@@ -400,35 +416,76 @@ export const LandingPage: React.FC = () => {
 
     // Pro users or users with free analyses remaining receive real-time speech evaluation
     setIsAnalyzing(true);
+    setAnalysisError(null);
     try {
-      const evalResult = await SpeechEvaluatorService.evaluateSpeech({
+      const result = await SpeechEvaluatorService.runSharedSpeechAnalysis({
         topicTitle: activePrompt.word ? `Practice Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt,
         topicCategory: activePrompt.category,
         transcript: spokenTranscript,
         durationSeconds: actualDuration,
+        wordConfidenceMap: wordConfidenceMapRef.current,
       });
 
-      const report = SpeechEvaluatorService.createSpeechReport(
-        evalResult,
-        activePrompt.word ? `Word - ${activePrompt.word}` : activePrompt.prompt,
-        spokenTranscript,
-        actualDuration
-      );
-
-      setAnalysisReport(report);
-      useReportStore.getState().saveReport(report);
-
-      // =========================================================================
-      // CRITICAL USAGE CONSUMPTION RULE (REGRESSION GUARD):
-      // Must await decrementAttempts() to synchronize the attempt counter with the DB
-      // immediately upon analysis completion, ensuring "X uses left" decrements
-      // and blocks the 4th attempt cleanly.
-      // =========================================================================
-      if (!hasProAccess) {
-        await decrementAttempts();
+      if (result.status === 'TOO_SHORT') {
+        setAnalysisError({ message: result.message, isShort: true });
+        return;
       }
-    } catch (err) {
+
+      if (result.status === 'ERROR') {
+        setAnalysisError({ message: result.error, isShort: false });
+        return;
+      }
+
+      if (result.status === 'SUCCESS') {
+        setAnalysisReport(result.report);
+        useReportStore.getState().saveReport(result.report);
+
+        if (!hasProAccess) {
+          await decrementAttempts();
+        }
+      }
+    } catch (err: any) {
       console.error('Speech evaluation failed:', err);
+      setAnalysisError({ message: err?.message || 'Speech evaluation failed.', isShort: false });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleRetryAnalysis = async () => {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const actualDuration = Math.max(1, elapsedSecondsRef.current || elapsedSeconds);
+      const spokenTranscript = (liveTranscriptRef.current || liveTranscript).trim();
+      const result = await SpeechEvaluatorService.runSharedSpeechAnalysis({
+        topicTitle: activePrompt.word ? `Practice Word: ${activePrompt.word} - ${activePrompt.prompt}` : activePrompt.prompt,
+        topicCategory: activePrompt.category,
+        transcript: spokenTranscript,
+        durationSeconds: actualDuration,
+        wordConfidenceMap: wordConfidenceMapRef.current,
+      });
+
+      if (result.status === 'TOO_SHORT') {
+        setAnalysisError({ message: result.message, isShort: true });
+        return;
+      }
+
+      if (result.status === 'ERROR') {
+        setAnalysisError({ message: result.error, isShort: false });
+        return;
+      }
+
+      if (result.status === 'SUCCESS') {
+        setAnalysisReport(result.report);
+        useReportStore.getState().saveReport(result.report);
+
+        if (!hasProAccess) {
+          await decrementAttempts();
+        }
+      }
+    } catch (err: any) {
+      setAnalysisError({ message: err?.message || 'Retry failed.', isShort: false });
     } finally {
       setIsAnalyzing(false);
     }
@@ -446,7 +503,41 @@ export const LandingPage: React.FC = () => {
     setLiveTranscript('');
     setShowCompletionModal(false);
     setAnalysisReport(null);
+    setAnalysisError(null);
+    hasAwardedXpRef.current = false;
+    wordConfidenceMapRef.current = {};
   };
+
+  const handleCloseCompletionModal = () => {
+    setShowCompletionModal(false);
+    handleResetPractice();
+    if (window.history.state?.modal === 'completionModal') {
+      window.history.back();
+    }
+  };
+
+  // Lock body scroll and handle Android hardware back button
+  useEffect(() => {
+    if (!showCompletionModal) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    // Push state so Android back button pops this modal instead of leaving the page
+    window.history.pushState({ modal: 'completionModal' }, '');
+
+    const handlePopState = () => {
+      setShowCompletionModal(false);
+      handleResetPractice();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [showCompletionModal]);
 
   useEffect(() => {
     return () => {
@@ -1017,36 +1108,40 @@ export const LandingPage: React.FC = () => {
       <AnimatePresence>
         {showCompletionModal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in overflow-y-auto"
-            onClick={() => {
-              setShowCompletionModal(false);
-              handleResetPractice();
-            }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in"
+            onClick={handleCloseCompletionModal}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-lg my-8"
+              className="w-full max-w-lg flex flex-col relative max-h-[100vh] max-h-[100dvh]"
               onClick={(e) => e.stopPropagation()}
             >
-              <Card className="p-6 sm:p-8 space-y-5 neu-flat rounded-3xl text-center relative border border-indigo-500/30 shadow-2xl">
-                {/* Close (X) Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCompletionModal(false);
-                    handleResetPractice();
-                  }}
-                  className="absolute top-5 right-5 p-2 rounded-2xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors z-20 cursor-pointer"
-                  aria-label="Close modal"
+              <Card
+                className="flex flex-col max-h-[100vh] max-h-[100dvh] neu-flat rounded-3xl relative border border-indigo-500/30 shadow-2xl overflow-hidden p-0"
+                style={{ maxHeight: '100dvh' }}
+              >
+                {/* Sticky Header with Close (X) Button */}
+                <div
+                  className="sticky top-0 z-50 flex items-center justify-end px-4 py-2 bg-[var(--bg-primary)]/90 backdrop-blur-md border-b border-slate-200/50 dark:border-slate-800/50 flex-shrink-0"
+                  style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
                 >
-                  <X className="w-5 h-5" />
-                </button>
-
-                <div className="w-14 h-14 rounded-2xl neu-button text-emerald-500 mx-auto flex items-center justify-center shadow-neu-glow">
-                  <CheckCircle2 className="w-8 h-8" />
+                  <button
+                    type="button"
+                    onClick={handleCloseCompletionModal}
+                    className="min-w-[44px] min-h-[44px] w-11 h-11 p-2.5 rounded-2xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center cursor-pointer"
+                    aria-label="Close modal"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
+
+                {/* Scrollable Content Area */}
+                <div className="flex-1 overflow-y-auto overscroll-contain p-6 sm:p-8 pt-4 space-y-5 text-center">
+                  <div className="w-14 h-14 rounded-2xl neu-button text-emerald-500 mx-auto flex items-center justify-center shadow-neu-glow">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
 
                 <div className="space-y-1">
                   <Badge variant="emerald">Session Complete</Badge>
@@ -1106,86 +1201,65 @@ export const LandingPage: React.FC = () => {
                       </div>
 
                       <button
-                        onClick={() => {
-                          setShowCompletionModal(false);
-                          handleResetPractice();
-                        }}
+                        onClick={handleCloseCompletionModal}
                         className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold underline block mx-auto py-1"
                       >
                         Practice another topic without analysis
                       </button>
                     </div>
                   </div>
-                ) : (hasProAccess || isAnalyzing || analysisReport) ? (
+                ) : (hasProAccess || isAnalyzing || analysisReport || analysisError) ? (
                   isAnalyzing ? (
-                    <div className="py-8 space-y-4 text-center">
-                      <div className="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-600 animate-spin mx-auto shadow-neu-glow" />
+                    <div className="py-8 space-y-3 text-center">
                       <div className="space-y-1">
                         <h4 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center justify-center gap-2">
                           <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
-                          <span>Evaluating Your Spoken Speech with Gemini AI...</span>
+                          <span>SpeakWise is preparing your report</span>
                         </h4>
-                        <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto">
-                          Analyzing your spoken words, grammar, fluency, vocabulary, and confidence against the topic.
-                        </p>
+                        <p className="text-xs text-slate-500 font-medium">Please wait</p>
                       </div>
+                      <div className="w-10 h-10 rounded-full border-4 border-indigo-500/20 border-t-indigo-600 animate-spin mx-auto shadow-neu-glow mt-4" />
                     </div>
-                  ) : analysisReport?.overallScore === 0 ? (
-                    /* Zero Speech Detected State */
+                  ) : analysisError ? (
+                    /* Strict validation / error state - No mock scores! */
                     <div className="space-y-4 text-left">
-                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-black text-amber-700 dark:text-amber-400 uppercase">
-                          <AlertCircle className="w-4 h-4 text-amber-500" />
-                          <span>No Spoken Speech Detected</span>
+                      <div className={`p-4 rounded-2xl border text-left space-y-2 ${
+                        analysisError.isShort ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300' : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-300'
+                      }`}>
+                        <div className="flex items-center gap-2 text-xs font-black uppercase">
+                          <AlertCircle className={`w-4 h-4 ${analysisError.isShort ? 'text-amber-500' : 'text-rose-500'}`} />
+                          <span>{analysisError.isShort ? 'Not Enough Speech Detected' : 'Evaluation Failed'}</span>
                         </div>
-                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                          We did not detect any spoken words during this {elapsedSeconds}-second recording.
-                          Please ensure your microphone is enabled in your browser, unmuted, and speak audibly.
+                        <p className="text-xs leading-relaxed font-medium">
+                          {analysisError.message}
                         </p>
+                        {analysisError.isShort && (
+                          <p className="text-[11px] opacity-80 font-medium">
+                            An assessment was not generated and your free attempts were not consumed.
+                          </p>
+                        )}
                       </div>
 
-                      {/* Zero Score Breakdown */}
-                      <div className="p-4 rounded-2xl neu-pressed border border-indigo-500/20 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-slate-500 uppercase tracking-wider">
-                            Speech Scorecard
-                          </span>
-                          <Badge variant="amber">No Speech Detected</Badge>
-                        </div>
-                        <div className="flex items-baseline justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Overall:</span>
-                          <span className="text-2xl font-black font-mono text-slate-400">0%</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-600 dark:text-slate-400 pt-1">
-                          <div className="flex justify-between"><span>Grammar:</span><span className="font-mono text-slate-400">0%</span></div>
-                          <div className="flex justify-between"><span>Fluency:</span><span className="font-mono text-slate-400">0%</span></div>
-                          <div className="flex justify-between"><span>Vocabulary:</span><span className="font-mono text-slate-400">0%</span></div>
-                          <div className="flex justify-between"><span>Confidence:</span><span className="font-mono text-slate-400">0%</span></div>
-                        </div>
+                      <div className="flex gap-2">
+                        {!analysisError.isShort && (
+                          <Button
+                            size="md"
+                            variant="primary"
+                            className="flex-1 rounded-full py-3 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
+                            onClick={handleRetryAnalysis}
+                          >
+                            Retry Analysis
+                          </Button>
+                        )}
+                        <Button
+                          size="md"
+                          variant="outline"
+                          className="flex-1 rounded-full py-3 text-xs font-extrabold justify-center"
+                          onClick={handleCloseCompletionModal}
+                        >
+                          Try Again (Speak into Mic)
+                        </Button>
                       </div>
-
-                      {/* Microphone Help Drill */}
-                      <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs space-y-1">
-                        <span className="font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          Recommended Action
-                        </span>
-                        <p className="text-slate-700 dark:text-slate-300 font-medium leading-relaxed">
-                          Click below to start again. Speak 2-3 full sentences out loud while watching the Live Transcription text box in the recording card to confirm your words appear live.
-                        </p>
-                      </div>
-
-                      <Button
-                        size="md"
-                        variant="primary"
-                        className="w-full rounded-full py-3 text-xs font-extrabold shadow-lg shadow-indigo-600/30 justify-center"
-                        onClick={() => {
-                          setShowCompletionModal(false);
-                          handleResetPractice();
-                        }}
-                      >
-                        Try Again (Speak into Mic)
-                      </Button>
                     </div>
                   ) : analysisReport ? (
                     /* Real Speech Evaluated by Gemini AI */
@@ -1344,10 +1418,7 @@ export const LandingPage: React.FC = () => {
                         )}
 
                         <button
-                          onClick={() => {
-                            setShowCompletionModal(false);
-                            handleResetPractice();
-                          }}
+                          onClick={handleCloseCompletionModal}
                           className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold underline block mx-auto py-1"
                         >
                           Practice another topic on Homepage
@@ -1423,10 +1494,7 @@ export const LandingPage: React.FC = () => {
                       )}
 
                       <button
-                        onClick={() => {
-                          setShowCompletionModal(false);
-                          handleResetPractice();
-                        }}
+                        onClick={handleCloseCompletionModal}
                         className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-bold underline pt-2 block mx-auto"
                       >
                         Practice another topic on Homepage
@@ -1434,11 +1502,24 @@ export const LandingPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-              </Card>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+
+                {/* Close button at the bottom of the modal as a second way out */}
+                <div className="pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
+                  <Button
+                    size="md"
+                    variant="outline"
+                    onClick={handleCloseCompletionModal}
+                    className="w-full rounded-full py-3 text-xs font-bold justify-center"
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
 
       {/* Homepage SEO Content (Feature Showcase, Target Audience, and FAQ Accordion) */}
       <HomeSEOContent />

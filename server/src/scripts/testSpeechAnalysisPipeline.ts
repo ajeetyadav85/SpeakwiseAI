@@ -139,10 +139,10 @@ async function runSpeechAnalysisTests() {
 
   // Verify phonetics if present are derived dynamically or labeled as estimate
   if (reportA.pronunciationAnalysis) {
-    console.log(`- Speech A Phonetics: Estimated = ${reportA.pronunciationAnalysis.isEstimated}, Words evaluated: ${reportA.pronunciationAnalysis.mispronouncedWords.map(m => m.word).join(', ') || 'None'}`);
+    console.log(`- Speech A Phonetics: Estimated = ${reportA.pronunciationAnalysis.isEstimated}, Words evaluated: ${reportA.pronunciationAnalysis.mispronouncedWords.map((m: { word: string }) => m.word).join(', ') || 'None'}`);
   }
   if (reportB.pronunciationAnalysis) {
-    console.log(`- Speech B Phonetics: Estimated = ${reportB.pronunciationAnalysis.isEstimated}, Words evaluated: ${reportB.pronunciationAnalysis.mispronouncedWords.map(m => m.word).join(', ') || 'None'}`);
+    console.log(`- Speech B Phonetics: Estimated = ${reportB.pronunciationAnalysis.isEstimated}, Words evaluated: ${reportB.pronunciationAnalysis.mispronouncedWords.map((m: { word: string }) => m.word).join(', ') || 'None'}`);
   }
 
   console.log('✅ PASSED TEST 3: Two distinct transcripts generated two distinct, dynamically evaluated reports.\n');

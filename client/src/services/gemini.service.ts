@@ -5,7 +5,7 @@ export class GeminiService {
     const key =
       (import.meta.env.VITE_GEMINI_API_KEY as string) ||
       (import.meta.env.GEMINI_API_KEY as string) ||
-      '';
+      'AIzaSyAFG7zwb0JYAyNpr6KceDIF1OU9gdMWOZo';
 
     return key && key.trim().length > 10 ? key.trim() : null;
   }

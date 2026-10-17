@@ -55,7 +55,7 @@ export class SpeechEvaluatorService {
       (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY as string) ||
       (typeof import.meta !== 'undefined' && import.meta.env?.GEMINI_API_KEY as string) ||
       (typeof process !== 'undefined' ? (process.env?.VITE_GEMINI_API_KEY || process.env?.GEMINI_API_KEY) : '') ||
-      '';
+      'AIzaSyAFG7zwb0JYAyNpr6KceDIF1OU9gdMWOZo';
     return key && key.trim().length > 10 ? key.trim() : null;
   }
 
